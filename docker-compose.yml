@@ -1,0 +1,39 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: wallet-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: wallet_db
+      MYSQL_USER: wallet
+      MYSQL_PASSWORD: wallet
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uwallet", "-pwallet"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  wallet-service:
+    build: .
+    container_name: wallet-service
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PORT: 8080
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USER: wallet
+      DB_PASSWORD: wallet
+      DB_NAME: wallet_db
+      LOG_LEVEL: info
+    ports:
+      - "8080:8080"
+
+volumes:
+  mysql_data:
