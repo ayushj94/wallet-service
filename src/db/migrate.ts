@@ -1,17 +1,17 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
-import { createConnection } from 'mysql2/promise';
+import { Client } from 'pg';
 import { config } from '../config';
 
 async function main(): Promise<void> {
-  const conn = await createConnection({
+  const client = new Client({
     host: config.db.host,
     port: config.db.port,
     user: config.db.user,
     password: config.db.password,
     database: config.db.database,
-    multipleStatements: true,
   });
+  await client.connect();
 
   const dir = join(__dirname, '..', '..', 'migrations');
   const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
@@ -19,10 +19,10 @@ async function main(): Promise<void> {
   for (const file of files) {
     const sql = readFileSync(join(dir, file), 'utf8');
     console.log(`Running migration: ${file}`);
-    await conn.query(sql);
+    await client.query(sql);
   }
 
-  await conn.end();
+  await client.end();
   console.log('Migrations complete.');
 }
 

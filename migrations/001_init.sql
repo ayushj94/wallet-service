@@ -1,30 +1,40 @@
--- Wallets: one row per customer. balance_paise stored as BIGINT to avoid float drift.
+-- A wallet has one row per customer. balance_paise is the running total — every
+-- successful credit/debit updates it inside the same transaction that records the
+-- corresponding ledger entry, so they can never drift.
+
 CREATE TABLE IF NOT EXISTS wallets (
-  id              CHAR(36)     NOT NULL PRIMARY KEY,
-  customer_id     VARCHAR(64)  NOT NULL,
+  id              UUID         NOT NULL PRIMARY KEY,
+  customer_id     VARCHAR(64)  NOT NULL UNIQUE,
   balance_paise   BIGINT       NOT NULL DEFAULT 0,
-  created_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at      TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  UNIQUE KEY uniq_customer (customer_id),
+  created_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   CONSTRAINT chk_balance_non_negative CHECK (balance_paise >= 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+);
 
--- Ledger entries: append-only double-entry ledger. Each row is one money
--- movement (CREDIT into the wallet or DEBIT out). balance_after_paise snapshot
--- lets us verify SUM(signed amounts) == wallets.balance_paise without replaying.
+-- The ledger is an append-only record of every money movement. balance_after_paise
+-- snapshots the wallet balance immediately after this entry was applied, so the
+-- whole history is auditable without replaying logic.
+
+DO $$ BEGIN
+  CREATE TYPE entry_type_enum AS ENUM ('CREDIT', 'DEBIT');
+EXCEPTION
+  WHEN duplicate_object THEN NULL;
+END $$;
+
 CREATE TABLE IF NOT EXISTS ledger_entries (
-  id                    CHAR(36)              NOT NULL PRIMARY KEY,
-  wallet_id             CHAR(36)              NOT NULL,
-  entry_type            ENUM('CREDIT','DEBIT') NOT NULL,
-  amount_paise          BIGINT                NOT NULL,
-  balance_after_paise   BIGINT                NOT NULL,
-  idempotency_key       VARCHAR(128)          NOT NULL,
-  reference_id          VARCHAR(128)          NULL,
-  created_at            TIMESTAMP(3)          NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  id                    UUID                NOT NULL PRIMARY KEY,
+  wallet_id             UUID                NOT NULL REFERENCES wallets(id),
+  entry_type            entry_type_enum     NOT NULL,
+  amount_paise          BIGINT              NOT NULL,
+  balance_after_paise   BIGINT              NOT NULL,
+  idempotency_key       VARCHAR(128)        NOT NULL,
+  reference_id          VARCHAR(128),
+  created_at            TIMESTAMPTZ         NOT NULL DEFAULT clock_timestamp(),
 
-  UNIQUE KEY uniq_wallet_idem (wallet_id, idempotency_key),
-  KEY idx_wallet_created (wallet_id, created_at),
-  CONSTRAINT fk_ledger_wallet FOREIGN KEY (wallet_id) REFERENCES wallets(id),
+  CONSTRAINT uniq_wallet_idem UNIQUE (wallet_id, idempotency_key),
   CONSTRAINT chk_amount_positive CHECK (amount_paise > 0),
   CONSTRAINT chk_balance_after_non_negative CHECK (balance_after_paise >= 0)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+);
+
+CREATE INDEX IF NOT EXISTS idx_ledger_wallet_created
+  ON ledger_entries (wallet_id, created_at DESC);

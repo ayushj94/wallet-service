@@ -1,73 +1,81 @@
+<div align="center">
+
 # Prepaid Wallet Service
 
-A small HTTP service that owns customer wallet balances and records every money movement
-as an append-only **ledger**. Take-home submission.
+**A small, careful service that holds customer money — and never loses a paise of it.**
 
-**Stack:** Node 20, TypeScript, Fastify, MySQL 8, Kysely (type-safe SQL builder), Vitest.
+<sub>Take-home submission · Node 20 · TypeScript · Fastify · Postgres 16 · Kysely</sub>
+
+</div>
 
 ---
 
-## Quick start (Docker)
+## What this is
+
+A logistics platform's customers prepay money into a wallet. Every order debits a fixed
+amount; topups credit it. Two unbreakable rules:
+
+> A wallet must never go negative.
+> A retried request must never charge twice.
+
+Everything in this repo is built around honouring those two rules — under load, under
+retries, under concurrent activity on the same wallet.
+
+---
+
+## Run it
 
 ```bash
 docker compose up --build
 ```
 
-That brings up MySQL, runs the schema migration (via MySQL's `docker-entrypoint-initdb.d`),
-then starts the service on `http://localhost:8080`.
+That brings up Postgres, applies the schema on first boot, and starts the service on
+[localhost:8080](http://localhost:8080).
 
-Health check:
-
-```bash
-curl localhost:8080/health
-```
-
-## Quick start (without Docker)
+<details>
+<summary><b>Without Docker</b> (if you'd rather run against your own Postgres)</summary>
 
 ```bash
-# 1. Point at any MySQL 8 instance via .env
-cp .env.example .env
-# edit .env if your local MySQL has different creds
-
-# 2. Install + migrate + run
+cp .env.example .env       # point at your Postgres
 npm install
-npm run migrate
+npm run migrate            # applies migrations/001_init.sql
 npm run dev
 ```
+</details>
 
-## Try it
+### Try it out
 
 ```bash
-# create a wallet
+# Create a wallet
 WALLET=$(curl -s -X POST localhost:8080/wallets \
   -H 'content-type: application/json' \
   -d '{"customerId":"acme-corp"}' | jq -r .id)
 
-# top up ₹500
+# Top up ₹500
 curl -s -X POST localhost:8080/wallets/$WALLET/topup \
   -H 'content-type: application/json' \
   -d '{"amountPaise":50000,"idempotencyKey":"topup-1"}'
 
-# deduct ₹100 (simulating an order)
+# Place an order — deduct ₹100
 curl -s -X POST localhost:8080/wallets/$WALLET/deduct \
   -H 'content-type: application/json' \
   -H 'idempotency-key: order-abc-123' \
-  -d '{"amountPaise":10000,"referenceId":"order-abc-123"}'
+  -d '{"referenceId":"order-abc-123"}'
 
-# replay the same deduct — same ledger entry, balance unchanged
+# Retry the same order — same response, balance unchanged
 curl -s -X POST localhost:8080/wallets/$WALLET/deduct \
-  -H 'content-type: application/json' \
   -H 'idempotency-key: order-abc-123' \
-  -d '{"amountPaise":10000}'
+  -d '{}'
 
-# balance + history
+# Check balance and ledger
 curl -s localhost:8080/wallets/$WALLET/balance
 curl -s localhost:8080/wallets/$WALLET/transactions
 ```
 
 ### Order Service stub
 
-A small script that pretends to be the Order Service and demonstrates idempotency under retry:
+A script that pretends to be the upstream Order Service. Demonstrates idempotency by
+retrying the same order_id and checking it doesn't double-charge:
 
 ```bash
 npx tsx order-service-stub/place-order.ts <wallet-id> --retry
@@ -75,205 +83,295 @@ npx tsx order-service-stub/place-order.ts <wallet-id> --retry
 
 ---
 
-## API
+## API at a glance
 
-| Method | Path                          | Body / Headers                                                            | Description                                |
-| ------ | ----------------------------- | ------------------------------------------------------------------------- | ------------------------------------------ |
-| POST   | `/wallets`                    | `{ "customerId": string }`                                                | Create a wallet                            |
-| POST   | `/wallets/:id/topup`          | `{ "amountPaise": int, "idempotencyKey": string, "referenceId"?: string }` | Add funds (CREDIT ledger entry)            |
-| POST   | `/wallets/:id/deduct`         | same as topup; `amountPaise` defaults to 10000 (₹100)                      | Deduct funds (DEBIT, idempotent)           |
-| GET    | `/wallets/:id/balance`        | —                                                                         | Current balance                            |
-| GET    | `/wallets/:id/transactions`   | `?limit=N` (default 100, max 500)                                         | Ledger entries, newest first               |
+| Method | Path | What it does |
+| ------ | ---- | ------------ |
+| `POST` | `/wallets` | Open a wallet for a customer |
+| `POST` | `/wallets/:id/topup` | Add money (idempotent) |
+| `POST` | `/wallets/:id/deduct` | Take money for an order (idempotent) |
+| `GET`  | `/wallets/:id/balance` | What's in the wallet right now |
+| `GET`  | `/wallets/:id/transactions` | The ledger — every credit and debit |
 
-`idempotencyKey` can also be passed via the `Idempotency-Key` HTTP header.
+`idempotencyKey` may be passed as a JSON field or as the `Idempotency-Key` HTTP header.
 
-### Status codes
+<details>
+<summary><b>Response codes</b></summary>
 
-| Code | When                                                                 |
-| ---- | -------------------------------------------------------------------- |
-| 201  | Resource created (wallet, ledger entry)                              |
-| 200  | Idempotent replay — returns the prior ledger entry unchanged         |
-| 400  | Validation error (missing field, non-positive amount, …)             |
-| 404  | Wallet not found                                                     |
-| 422  | Insufficient balance on deduct                                       |
-| 409  | Idempotency conflict (backstop only — see "Idempotency" below)       |
+| Code | When |
+| ---- | ---- |
+| `201` | A new wallet or ledger entry was created |
+| `200` | A retry of a previous request — same answer as before |
+| `400` | The request itself is malformed (missing field, non-positive amount, …) |
+| `404` | Wallet doesn't exist |
+| `422` | Not enough money for this deduction |
+| `409` | Idempotency-key conflict (a backstop — the service path catches this internally) |
+
+</details>
 
 ---
 
-## Data model
+## How the data is shaped
 
 ```
-wallets                                    ledger_entries
-─────────────────────────                  ──────────────────────────────────
-id                CHAR(36) PK              id                  CHAR(36) PK
-customer_id       VARCHAR UNIQUE           wallet_id           CHAR(36) FK→wallets
-balance_paise     BIGINT                   entry_type          ENUM(CREDIT, DEBIT)
-created_at        TIMESTAMP                amount_paise        BIGINT (always positive)
-updated_at        TIMESTAMP                balance_after_paise BIGINT (snapshot for audit)
-                                           idempotency_key     VARCHAR
-CHECK (balance_paise >= 0)                 reference_id        VARCHAR NULL
-                                           created_at          TIMESTAMP(3)
-
-                                           UNIQUE (wallet_id, idempotency_key)
-                                           CHECK  (amount_paise > 0)
-                                           CHECK  (balance_after_paise >= 0)
+┌────────────────────────┐         ┌──────────────────────────────────┐
+│ wallets                │         │ ledger_entries                   │
+│ ────────────────────── │         │ ──────────────────────────────── │
+│ id              UUID   │◀────────│ wallet_id            UUID        │
+│ customer_id     UNIQUE │         │ id                   UUID        │
+│ balance_paise   BIGINT │         │ entry_type           CREDIT/DEBIT│
+│ created_at, updated_at │         │ amount_paise         BIGINT > 0  │
+│                        │         │ balance_after_paise  BIGINT      │
+│ CHECK balance ≥ 0      │         │ idempotency_key      VARCHAR     │
+└────────────────────────┘         │ reference_id         VARCHAR?    │
+                                   │ created_at           TIMESTAMPTZ │
+                                   │                                  │
+                                   │ UNIQUE(wallet_id, idem_key)      │
+                                   │ CHECK amount > 0                 │
+                                   │ CHECK balance_after ≥ 0          │
+                                   └──────────────────────────────────┘
 ```
 
-Key choices:
+A few choices worth pointing out:
 
-- **Money in paise (integer), never floats.** No rounding drift, no decimal-versus-binary
-  surprises. Display formatting is a client concern.
-- **Append-only ledger (`ledger_entries`).** The wallet balance is a derived projection of
-  the ledger — every business event is a row, and the wallet row is the running total.
-- **`entry_type: CREDIT | DEBIT`.** Standard double-entry terminology. CREDIT = money into
-  the wallet (topup), DEBIT = money out (deduct). `amount_paise` is always positive; the
-  type carries direction.
-- **`balance_after_paise` snapshot on each entry.** Lets us verify the invariant
-  `SUM(signed amounts) == wallets.balance_paise` cheaply, and makes the ledger
-  self-describing — any past balance is reconstructable without replaying logic.
-- **`reference_id`** carries the external business identifier (e.g. order_id for debits,
-  payment-gateway txn for credits). Distinct from `idempotency_key`, which is a transport
-  concern.
-- **`CHECK (balance_paise >= 0)`** at the DB layer. The application enforces this too, but
-  the DB constraint is a defense-in-depth backstop — if application logic ever tried to
-  write a negative balance, MySQL would reject.
-- **`UNIQUE (wallet_id, idempotency_key)`.** Idempotency keys are scoped per wallet so two
-  customers can use overlapping keys without conflict.
+- **Money is stored in paise**, as integers. Floats and money don't mix — you'd accumulate
+  tiny rounding errors over time and one day discover ₹0.0000001 missing from a customer.
+- **Every entry stores the balance *after* it was applied**. Means you can audit any past
+  moment without replaying the whole history, and the latest entry's `balance_after_paise`
+  always agrees with `wallets.balance_paise`.
+- **`amount_paise` is always positive**; direction lives in `entry_type`. Easier to read,
+  easier to query ("show me all credits this month").
+- **`UNIQUE (wallet_id, idempotency_key)`** is the safety net that makes retries safe.
 
 ---
 
-## Correctness: the two hard cases
+## The two interesting design decisions
 
-### 1. Concurrent debits on the same wallet
+This section is the heart of the README. Everything else is plumbing.
 
-If two `/deduct` requests arrive at the same time for a wallet with ₹100, only one must
-succeed. The naive implementation (read balance, check, write) has a TOCTOU race that lets
-both pass.
+### 1. Where does the balance live?
 
-The fix is `SELECT ... FOR UPDATE` inside a transaction: the first request takes a
-row-level lock on the wallet, the second blocks until the first commits, then sees the
-updated balance and either proceeds or fails cleanly. MySQL InnoDB does this in milliseconds.
+We could have built this three ways. Each one is a real choice you'll see in different
+production systems.
 
-Belt-and-braces: there's also a `CHECK (balance_paise >= 0)` constraint, so if the
-application logic were ever bypassed the DB would still reject the write.
+#### Option A — Compute the balance from the ledger every time
 
-See `src/services/wallet-service.ts` → `recordLedgerEntry`. The lock acquisition is the
-very first thing inside the transaction.
+The ledger is already an append-only record of every credit and debit. So why store the
+balance separately at all? Just `SUM(credits) - SUM(debits)` whenever someone asks.
 
-### 2. Idempotent debit (and credit)
+It's clean and elegant. There's only one source of truth, and it can never drift from
+itself.
 
-The Order Service may retry a `/deduct` call after a network blip; we must charge once.
+The problem isn't the read path — it's the **write path**.
 
-The approach:
+Every `/deduct` has to first answer: "is there enough money?" That means computing the
+current balance *before* the mutation. So the deduct path *also* has to scan the entire
+ledger — every single time, for every order.
 
-1. Inside the same transaction, **after taking the wallet lock**, look up the
-   `(wallet_id, idempotency_key)` pair.
-2. If a ledger entry with that key already exists, return it with `idempotent: true`.
-3. Otherwise, insert the new entry and update the balance.
+You can't cache your way out of this. The deduct needs the **authoritative,
+up-to-the-microsecond** balance to make a correctness decision. A stale cache could let
+two orders both pass a balance check that's actually only good for one — and you've
+double-spent.
 
-Locking the wallet **before** the idempotency check is what makes concurrent retries safe:
-two requests with the same key serialize on the wallet row, so the second one sees the
-first's committed entry when it does its idempotency lookup.
+| What | Reads | Writes |
+| ---- | ----- | ------ |
+| Cost | Slow (O of total entries) | **Slow (same scan)** |
+| Cacheable? | Yes — happy path is fast after warmup | **No** — cache can't be trusted for correctness |
 
-The `UNIQUE (wallet_id, idempotency_key)` constraint is a defense-in-depth backstop —
-the application path shouldn't hit it, but if a bug ever broke the lock-then-check order,
-the DB would reject the duplicate insert and the error handler maps it to a clean 409.
+So caching hides the read problem but does nothing for the write problem. For an active
+wallet that does a thousand orders a day, this design buckles under its own success.
 
-**The spec only required `/deduct` to be idempotent, but I made `/topup` idempotent too**
-using the same mechanism. Topup retries are just as real (payment-gateway webhooks,
-frontend retries) and a double-credit is arguably worse than a double-debit. Same code
-path, no special cases.
+#### Option B — Keep a `balance` column on the wallet, updated with every entry
+
+This is what we do. Every time we write a ledger entry, we update `wallets.balance_paise`
+to match — in the same database transaction, so they can't get out of step.
+
+| What | Reads | Writes |
+| ---- | ----- | ------ |
+| Cost | One indexed lookup | One indexed lookup + one update |
+| Drift risk | Impossible — the transaction makes them atomic | Same |
+
+`/balance` becomes a single primary-key read. The deduct path reads the current balance,
+checks it, writes the new value — all in one tightly-scoped transaction.
+
+The only theoretical concern is drift between the column and the ledger. But because every
+change happens in the same transaction, drift would require a database bug, not a logic
+bug. The chaos test (`SUM(signed amounts) == wallets.balance`) is the canary — if anyone
+ever moves the wallet update outside the transaction, that test screams.
+
+#### Option C — Hybrid: store balance, but derive it from the latest ledger entry
+
+We already write `balance_after_paise` to every ledger entry. So you could drop the
+`wallets.balance_paise` column entirely and read `balance_after_paise` from the most
+recent ledger entry for the wallet. O(1) with an index on `(wallet_id, created_at DESC)`.
+
+It works. It's slightly purer. But it has two downsides:
+- A wallet that grows additional fields (status, tier, daily-limit, frozen-until) loses
+  its natural home — those don't belong on a ledger entry.
+- "Show me all wallets with balance over ₹10000" stops being a simple index scan.
+
+So we stick with Option B: a real balance column, kept honest by atomic transactions.
 
 ---
 
-## Testing methodology
+### 2. How do we stop two requests from spending the same money?
 
-The test suite (`tests/wallet.test.ts`) runs against a real MySQL instance — not an
-in-memory mock — because the correctness questions this service is built around (row
-locks, unique constraints, isolation) are precisely what mocks would paper over.
+Imagine a wallet has ₹100, and two `/deduct` requests for ₹100 arrive at the exact same
+millisecond. Both read the balance (₹100), both decide they're allowed to proceed, both
+debit. The wallet now reads ₹-100 — a hole the business has to absorb.
 
-What it covers:
+This is the central correctness question. There are three honest ways to solve it.
 
-| Class of test          | What it asserts                                                                          |
-| ---------------------- | ---------------------------------------------------------------------------------------- |
-| Happy path             | Create → credit → debit → balance/ledger reflects every operation                        |
-| Balance constraint     | Debit rejected on empty/insufficient wallet; balance unchanged. Exact-balance debit OK   |
-| Idempotency (debit)    | Same key returns same entry, balance unchanged                                           |
-| Idempotency (credit)   | Same — extra safety not in the spec                                                      |
-| Idempotency via header | `Idempotency-Key` HTTP header works in addition to body field                            |
-| **Concurrent debits**  | 10 parallel requests on a ₹300 wallet → exactly 3 succeed, 7 fail with 422               |
-| **Concurrent retries** | 10 parallel requests with same idempotency key → exactly one ledger entry created        |
-| **Chaos / invariant**  | 50 mixed parallel ops → assert `SUM(signed amounts) == wallets.balance` afterwards       |
-| Validation             | Missing fields, non-positive amounts → 400 (Fastify JSON-schema validation)              |
-| Not found              | Unknown wallet → 404 on all paths                                                         |
+#### Pessimistic locking — "everyone wait your turn"
 
-Run:
+The first request to arrive takes a **row-level lock** on the wallet — telling the database
+"nobody else touches this row until I'm done." The second request has to wait. When the
+first commits, the second wakes up, sees the new balance, and either proceeds or fails.
+
+```
+Request A: lock → read balance → debit → commit → release
+Request B:            wait...........................wait → lock → read → debit
+```
+
+Pros: Simple to reason about. No retries, no rollbacks, no surprises. Easy to extend with
+additional checks (status, tier, limits) inside the locked section.
+
+Cons: Every request pays the lock cost, even when there's no actual contention. On a quiet
+wallet — which is most of them — that's a tax you didn't need to pay.
+
+#### Optimistic locking — "race ahead, undo if we collide"
+
+Try to mutate without locking first. The mutation itself is atomic — Postgres lets you say
+"update the balance, but only if it would stay non-negative, and tell me the new value."
+If two requests race, **one wins, one comes back with `0 rows affected`** and knows it lost.
+
+```
+Request A:   try-debit (success) → write ledger → done
+Request B:   try-debit (success) → write ledger → conflict!  → roll back → look up A's result
+```
+
+Pros: When there's no contention (which is most of the time for a customer wallet), this
+saves a query per request. Faster average-case throughput.
+
+Cons: When there *is* contention, the loser pays extra — it rolled back work it shouldn't
+have started, and has to look up the winner's result. Also slightly more code paths to
+understand.
+
+#### Double-checked — "peek first, then lock if it looks promising"
+
+A clever optimization: do a quick, lockless read of the balance first. If it's clearly
+insufficient, reject right away without bothering to take a lock. If it looks promising,
+take the lock and check properly.
+
+```
+Request: read balance (no lock) → not enough? reject
+                                → enough?     lock → read again → debit
+```
+
+Pros: Saves a lock for guaranteed-to-fail requests.
+
+Cons: This is a real-world example of premature optimization. The "expensive" lock isn't
+actually expensive — it's microseconds. The extra read costs a network round trip — about
+a millisecond. So you've added a guaranteed cost to make a rare case cheaper. The math
+doesn't work out unless your lock contention is genuinely high *and* most of those
+contenders would have failed anyway. For a wallet service, that's almost never true.
+
+There's also a subtle correctness wrinkle: the lockless read can be stale, leading to
+false negatives if a topup commits in between the two reads.
+
+#### So which one did we pick?
+
+**Optimistic** — because customer wallets have very low contention (one person isn't
+firing a hundred concurrent orders on themselves), and the happy-path win is worth more
+than the rare-case loss.
+
+On a busy B2B logistics wallet with many concurrent ops, the math gets closer — pessimistic
+locking has its case there. But even then, you'd want sharded balances long before
+single-row contention became a real bottleneck.
+
+| | Happy path (no contention) | Race path (concurrent same key) |
+| --- | --- | --- |
+| Pessimistic | 4 queries | 4 + 2 queries (loser waits, returns cached) |
+| **Optimistic (chosen)** | **3 queries** | 3 + 4 queries + 1 rollback |
+| Double-check | 4 + 1 queries | 4 + 2 + 1 queries |
+
+The happy path runs millions of times more often than the conflict path. Optimistic wins.
+
+---
+
+## How idempotency works
+
+When the Order Service retries `/deduct` after a network blip, it sends the **same
+idempotency key** (typically `order_id`). The wallet service has to charge once and only
+once.
+
+Two layers do this work:
+
+1. **The fast path**: before doing any work, look up `(wallet_id, idempotency_key)` in the
+   ledger. If a row exists, we already processed this request — return that row's data and
+   stop. This is the case for any retry that arrives after the original committed (which
+   is almost all of them — retries are typically delayed by seconds).
+
+2. **The unique constraint**: `UNIQUE (wallet_id, idempotency_key)` is the safety net for
+   the rare case where two requests with the same key are truly in flight at the same
+   moment. The fast path can't catch them — neither has committed yet. So both proceed,
+   both try to insert a ledger row, the database rejects the second one, and our code
+   rolls back its wallet update and fetches the winner's result.
+
+The spec only asked for `/deduct` to be idempotent, but we made `/topup` idempotent too.
+Real-world topups also retry — payment-gateway webhooks fire twice, customers refresh the
+checkout page, etc. Same code path, same mechanism, same guarantees. A double-credit is at
+least as bad as a double-debit.
+
+---
+
+## How we test it
+
+The test suite runs against a real Postgres instance — not a mock — because the questions
+this service has to answer (does the row lock work? does the unique constraint catch
+races?) are precisely what a mock would lie about.
+
+| What it checks | Why it matters |
+| -------------- | -------------- |
+| Happy path through every endpoint | The boring "does it work at all" baseline |
+| Insufficient balance is rejected | The headline correctness rule |
+| Exact-balance deduct succeeds | Off-by-one boundary check |
+| Replay of `/deduct` returns the same entry | Idempotency, the spec's hard requirement |
+| Replay of `/topup` returns the same entry | Idempotency we added beyond the spec |
+| `Idempotency-Key` header works alongside body field | Two transports, one outcome |
+| **10 concurrent deducts on a ₹300 wallet** | Exactly 3 succeed, 7 fail with 422. The locking story. |
+| **10 concurrent same-key retries** | Exactly 1 ledger entry is created. The idempotency story. |
+| **50-op chaos run** | `SUM(signed amounts) == wallets.balance` after the dust settles |
+| Validation errors return 400 | Fastify JSON-schema rejects malformed input |
+| Unknown wallet returns 404 | Standard not-found behaviour |
 
 ```bash
-# bring up MySQL first
-docker compose up -d mysql
-
-# in another terminal
-npm test
+docker compose up -d postgres   # start the DB
+npm test                        # run the suite
 ```
 
-The chaos test is the most valuable one — it's the test I'd run after any change to the
-ledger path. If `SUM(signed amounts) == wallets.balance` ever fails, something is
-fundamentally wrong with the locking or idempotency.
-
----
-
-## Decisions and trade-offs
-
-- **MySQL over an in-memory store.** The whole assignment is a concurrency-correctness
-  problem. An in-memory map with a JS lock "works" but it doesn't demonstrate the actual
-  production tools (row locking, unique constraints, transaction isolation) — and it can't
-  survive a process restart.
-- **Kysely over an ORM.** I considered Sequelize and Prisma. Sequelize hides
-  `FOR UPDATE` behind options-bag config; Prisma adds a code-generation step. Kysely is a
-  thin type-safe layer over raw SQL — the lock and the idempotency lookup read like SQL,
-  which is what you want when correctness depends on exactly which SQL runs.
-- **No Redis.** Considered Redis for distributed locking; rejected. MySQL's row lock IS
-  the source of truth — adding Redis on top creates a TOCTOU gap (Redis lock and DB state
-  can drift) without making anything safer. Redis would be a great fit for
-  rate-limiting-per-wallet or hot-balance read caching, neither of which the assignment
-  needs.
-- **Idempotency stored on the ledger row, not a separate table.** Stripe-style separate
-  `idempotency_keys` tables let you cache the full response body for byte-exact replay.
-  Here, the response is small and derivable from the ledger entry, so an extra table
-  would be over-engineering.
-- **`amountPaise` accepted on `/deduct` even though spec fixes it at ₹100.** Defaults to
-  10000 paise when missing, so the spec's "₹100 per order" flow works with no body. But
-  it's parameterised so tests can exercise different amounts.
-- **JSON-schema request validation via Fastify.** Declarative schemas at the route
-  registration site instead of imperative `if`-checks in handlers. Standard Fastify
-  pattern; rejects bad input before the handler runs.
+The chaos test is the most valuable one. If `SUM(ledger) == balance` ever fails, it means
+the atomicity between the ledger insert and the wallet update has broken — that's a
+canary worth keeping forever.
 
 ---
 
 ## What I'd do with more time
 
-- **Per-wallet rate limiting** with Redis — protect against runaway clients or abuse.
-- **Reconciliation job** that periodically asserts `SUM(ledger) == wallets.balance` across
-  every wallet and alerts if it drifts.
-- **More ledger entry types** — `REFUND`, `ADJUSTMENT`, `BONUS_CREDIT`, etc. The
-  `entry_type` column is the natural extension point; adding new values doesn't change the
-  shape of the ledger.
-- **Pending → completed states.** Real wallets often have a `status` column
-  (`PENDING/COMPLETED/REVERSED`) to model in-flight settlement. Out of scope here but the
-  ledger shape already accommodates it.
-- **Optimistic-locking read path for balance** — currently `GET /balance` reads the
-  `wallets` row directly, which is fine, but for very high read-to-write ratios I'd cache
-  it in Redis with invalidation on every successful mutation.
-- **Background expiry of stale idempotency keys.** Right now they live forever; in
-  production I'd TTL them at e.g. 24h since retries beyond that don't happen.
-- **Structured request IDs + tracing.** Fastify's `req.id` is fine for local dev; in prod
-  I'd plumb OpenTelemetry through.
-- **A proper migrations framework.** The current `migrations/*.sql` + auto-run on MySQL
-  startup is fine for v1 but doesn't track applied migrations. `kysely-migrator` or
-  `node-pg-migrate`-style would be the upgrade.
-- **Read-replica support in Kysely** — split `GET` traffic onto a replica with a small
-  lag-aware fallback to primary.
+- **Per-wallet rate limiting** with Redis — protect against runaway scripts hammering one
+  wallet.
+- **Reconciliation job**, run hourly, that asserts `SUM(ledger) == balance` across every
+  wallet and pages on-call if it ever drifts.
+- **More ledger entry types** — `REFUND`, `ADJUSTMENT`, `BONUS_CREDIT`. The shape of the
+  ledger already accommodates this; only the enum needs new values.
+- **Settlement states** — real wallets often have entries in `PENDING` before they reach
+  `COMPLETED`, to model in-flight payments. Out of scope today but the shape supports it.
+- **Read replica for balance lookups** — current design points everything at the primary;
+  a small lag-aware fallback would let `GET /balance` scale further.
+- **Idempotency-key expiry** — they currently live forever. In production, TTL them at
+  24 hours since retries beyond that don't happen.
+- **OpenTelemetry tracing** — Fastify's `req.id` works for local dev; production needs
+  proper distributed tracing.
 
 ---
 
@@ -281,26 +379,26 @@ fundamentally wrong with the locking or idempotency.
 
 ```
 .
-├── docker-compose.yml          # MySQL + service, one command to start
-├── Dockerfile                  # multi-stage build for the service image
+├── docker-compose.yml             # Postgres + service in one command
+├── Dockerfile                     # multi-stage service image
 ├── migrations/
-│   └── 001_init.sql            # schema (auto-runs on first MySQL boot)
+│   └── 001_init.sql               # schema, applied on first DB boot
 ├── order-service-stub/
-│   └── place-order.ts          # demonstrates /deduct with retry
+│   └── place-order.ts             # the upstream caller, with retry simulation
 ├── src/
-│   ├── server.ts               # entrypoint, graceful shutdown
-│   ├── app.ts                  # Fastify wiring, error mapping
-│   ├── config.ts               # env vars
+│   ├── server.ts                  # entrypoint, graceful shutdown
+│   ├── app.ts                     # Fastify wiring, error → HTTP mapping
+│   ├── config.ts                  # env vars
 │   ├── db/
-│   │   ├── index.ts            # Kysely + mysql2 pool
-│   │   ├── schema.ts           # row types (wallets, ledger_entries)
-│   │   └── migrate.ts          # CLI: run SQL files in order
+│   │   ├── index.ts               # Kysely + pg pool
+│   │   ├── schema.ts              # row types
+│   │   └── migrate.ts             # CLI: run SQL files in order
 │   ├── routes/
-│   │   └── wallets.ts          # HTTP layer (JSON-schema validation, DTO shaping)
+│   │   └── wallets.ts             # HTTP handlers + JSON-schema validation
 │   ├── services/
-│   │   └── wallet-service.ts   # business logic — locking + idempotency
-│   └── errors.ts               # AppError → status code mapping
+│   │   └── wallet-service.ts      # the heart — optimistic concurrency, idempotency
+│   └── errors.ts                  # typed errors → status codes
 └── tests/
-    ├── setup.ts                # shared Fastify + DB lifecycle
-    └── wallet.test.ts          # happy / balance / idempotency / concurrency / chaos
+    ├── setup.ts                   # shared Fastify + DB lifecycle
+    └── wallet.test.ts             # happy, balance, idempotency, concurrency, chaos
 ```

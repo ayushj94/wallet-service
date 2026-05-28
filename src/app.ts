@@ -19,10 +19,11 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (Array.isArray((err as { validation?: unknown }).validation)) {
       return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: err.message } });
     }
-    // mysql2 surfaces dup-key as ER_DUP_ENTRY — keep this as a backstop in case
-    // the lock-then-check path ever leaks a race through.
+    // Postgres surfaces unique-violation as SQLSTATE 23505. The service path
+    // catches the race internally, but this is a backstop for any other code
+    // path that could ever trip the same constraint.
     const e = err as Error & { code?: string };
-    if (e.code === 'ER_DUP_ENTRY') {
+    if (e.code === '23505') {
       return reply.code(409).send({
         error: { code: 'IDEMPOTENCY_CONFLICT', message: 'Duplicate idempotency key' },
       });
