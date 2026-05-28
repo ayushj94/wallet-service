@@ -9,6 +9,10 @@ export async function buildApp(): Promise<FastifyInstance> {
       level: config.logLevel,
       transport: config.logLevel === 'debug' ? { target: 'pino-pretty' } : undefined,
     },
+    // Strict input typing: refuse to silently coerce "100" -> 100, or true -> 1.
+    // For a financial API, a string-looking-like-a-number from a caller is a
+    // bug we should surface, not paper over.
+    ajv: { customOptions: { coerceTypes: false } },
   });
 
   app.setErrorHandler((err, req, reply) => {

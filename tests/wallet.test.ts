@@ -254,16 +254,6 @@ describe('validation and not-found', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('rejects non-positive amount on topup', async () => {
-    const id = await createWallet();
-    const res = await app.inject({
-      method: 'POST',
-      url: `/wallets/${id}/topup`,
-      payload: { amount: 0, referenceType: 'PAYMENT_SYSTEM', referenceId: randomUUID() },
-    });
-    expect(res.statusCode).toBe(400);
-  });
-
   it('rejects missing reference fields on mutation', async () => {
     const id = await createWallet();
     const res = await app.inject({
@@ -282,5 +272,76 @@ describe('validation and not-found', () => {
   it('returns 404 for unknown wallet on balance', async () => {
     const res = await app.inject({ method: 'GET', url: `/wallets/${randomUUID()}/balance` });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('amount must be a positive integer', () => {
+  // These are caught by Fastify's JSON-schema validation before the route handler
+  // ever runs — so a malformed request never reaches the database.
+  const invalidAmounts: Array<{ amount: unknown; label: string }> = [
+    { amount: -1, label: 'negative integer' },
+    { amount: -100, label: 'large negative integer' },
+    { amount: 0, label: 'zero' },
+    { amount: 1.5, label: 'positive float' },
+    { amount: -1.5, label: 'negative float' },
+    { amount: 100.5, label: 'large positive float' },
+    { amount: '100', label: 'numeric string' },
+    { amount: null, label: 'null' },
+  ];
+
+  it.each(invalidAmounts)('topup rejects $label ($amount)', async ({ amount }) => {
+    const id = await createWallet();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/wallets/${id}/topup`,
+      payload: { amount, referenceType: 'PAYMENT_SYSTEM', referenceId: randomUUID() },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it.each(invalidAmounts)('deduct rejects $label ($amount)', async ({ amount }) => {
+    const id = await createWallet();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/wallets/${id}/deduct`,
+      payload: { amount, referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejected requests never touch the database', async () => {
+    const id = await createWallet();
+    await topup(id, 50000);
+    const before = await db
+      .selectFrom('wallet_ledger_entries')
+      .selectAll()
+      .where('wallet_id', '=', id)
+      .execute();
+
+    // Fire several invalid requests of different shapes.
+    await Promise.all([
+      app.inject({
+        method: 'POST',
+        url: `/wallets/${id}/deduct`,
+        payload: { amount: -1, referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/wallets/${id}/topup`,
+        payload: { amount: 1.5, referenceType: 'PAYMENT_SYSTEM', referenceId: randomUUID() },
+      }),
+      app.inject({
+        method: 'POST',
+        url: `/wallets/${id}/deduct`,
+        payload: { amount: 0, referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
+      }),
+    ]);
+
+    const after = await db
+      .selectFrom('wallet_ledger_entries')
+      .selectAll()
+      .where('wallet_id', '=', id)
+      .execute();
+    expect(after).toHaveLength(before.length); // no new entries written
   });
 });
