@@ -3,29 +3,33 @@ import { randomUUID } from 'node:crypto';
 import { app } from './setup';
 import { db } from '../src/db';
 
-async function createWallet(): Promise<string> {
+async function createWallet(currency = 'INR'): Promise<string> {
   const res = await app.inject({
     method: 'POST',
     url: '/wallets',
-    payload: { customerId: `cust-${randomUUID()}` },
+    payload: { customerId: `cust-${randomUUID()}`, currency },
   });
   expect(res.statusCode).toBe(201);
   return res.json().id as string;
 }
 
-async function topup(id: string, amount: number, key = randomUUID()): Promise<ReturnType<typeof app.inject>> {
+async function topup(id: string, amount: number, refId = randomUUID()): Promise<ReturnType<typeof app.inject>> {
   return app.inject({
     method: 'POST',
     url: `/wallets/${id}/topup`,
-    payload: { amountPaise: amount, idempotencyKey: key },
+    payload: { amount, referenceType: 'PAYMENT_SYSTEM', referenceId: refId },
   });
 }
 
-async function deduct(id: string, amount = 10000, key = randomUUID()): Promise<ReturnType<typeof app.inject>> {
+async function deduct(
+  id: string,
+  amount = 10000,
+  refId = randomUUID(),
+): Promise<ReturnType<typeof app.inject>> {
   return app.inject({
     method: 'POST',
     url: `/wallets/${id}/deduct`,
-    payload: { amountPaise: amount, idempotencyKey: key },
+    payload: { amount, referenceType: 'ORDER_SYSTEM', referenceId: refId },
   });
 }
 
@@ -36,11 +40,15 @@ describe('happy path', () => {
     expect((await deduct(id, 10000)).statusCode).toBe(201);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
-    expect(bal.json().balancePaise).toBe(40000);
+    expect(bal.json().balance).toBe(40000);
+    expect(bal.json().currency).toBe('INR');
 
     const ledger = await app.inject({ method: 'GET', url: `/wallets/${id}/transactions` });
     expect(ledger.json().entries).toHaveLength(2);
-    expect(ledger.json().entries.map((e: { entryType: string }) => e.entryType).sort()).toEqual(['CREDIT', 'DEBIT']);
+    expect(ledger.json().entries.map((e: { entryType: string }) => e.entryType).sort()).toEqual([
+      'CREDIT',
+      'DEBIT',
+    ]);
   });
 });
 
@@ -53,7 +61,7 @@ describe('balance constraint', () => {
     expect(res.json().error.code).toBe('INSUFFICIENT_BALANCE');
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
-    expect(bal.json().balancePaise).toBe(5000);
+    expect(bal.json().balance).toBe(5000);
   });
 
   it('rejects debit on an empty wallet', async () => {
@@ -68,18 +76,18 @@ describe('balance constraint', () => {
     const res = await deduct(id, 10000);
     expect(res.statusCode).toBe(201);
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
-    expect(bal.json().balancePaise).toBe(0);
+    expect(bal.json().balance).toBe(0);
   });
 });
 
 describe('idempotency', () => {
-  it('replays the same response on duplicate debit key', async () => {
+  it('replays the same response on duplicate debit reference', async () => {
     const id = await createWallet();
     await topup(id, 50000);
 
-    const key = randomUUID();
-    const first = await deduct(id, 10000, key);
-    const second = await deduct(id, 10000, key);
+    const refId = randomUUID();
+    const first = await deduct(id, 10000, refId);
+    const second = await deduct(id, 10000, refId);
 
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(200);
@@ -87,43 +95,45 @@ describe('idempotency', () => {
     expect(second.json().entry.id).toBe(first.json().entry.id);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
-    expect(bal.json().balancePaise).toBe(40000); // debited once, not twice
+    expect(bal.json().balance).toBe(40000); // debited once, not twice
   });
 
-  it('replays the same response on duplicate credit key', async () => {
+  it('replays the same response on duplicate credit reference', async () => {
     const id = await createWallet();
-    const key = randomUUID();
-    const first = await topup(id, 50000, key);
-    const second = await topup(id, 50000, key);
+    const refId = randomUUID();
+    const first = await topup(id, 50000, refId);
+    const second = await topup(id, 50000, refId);
 
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(200);
     expect(second.json().idempotent).toBe(true);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
-    expect(bal.json().balancePaise).toBe(50000);
+    expect(bal.json().balance).toBe(50000);
   });
 
-  it('uses Idempotency-Key header when body field is absent', async () => {
+  it('same reference_id under different reference_type is treated as distinct', async () => {
     const id = await createWallet();
-    await topup(id, 50000);
+    await topup(id, 100000);
 
-    const key = randomUUID();
+    const sameId = randomUUID();
     const r1 = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/deduct`,
-      headers: { 'idempotency-key': key },
-      payload: { amountPaise: 10000 },
+      payload: { amount: 10000, referenceType: 'ORDER_SYSTEM', referenceId: sameId },
     });
     const r2 = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/deduct`,
-      headers: { 'idempotency-key': key },
-      payload: { amountPaise: 10000 },
+      payload: { amount: 10000, referenceType: 'LOAN_SYSTEM', referenceId: sameId },
     });
 
     expect(r1.statusCode).toBe(201);
-    expect(r2.json().idempotent).toBe(true);
+    expect(r2.statusCode).toBe(201);
+    expect(r1.json().entry.id).not.toBe(r2.json().entry.id);
+
+    const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
+    expect(bal.json().balance).toBe(80000); // both debits applied
   });
 });
 
@@ -143,16 +153,16 @@ describe('concurrency', () => {
     expect(failures).toHaveLength(7);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
-    expect(bal.json().balancePaise).toBe(0);
+    expect(bal.json().balance).toBe(0);
   });
 
-  it('concurrent calls with the same idempotency key produce one ledger entry', async () => {
+  it('concurrent calls with the same reference produce one ledger entry', async () => {
     const id = await createWallet();
     await topup(id, 50000);
 
-    const key = randomUUID();
+    const refId = randomUUID();
     const attempts = await Promise.all(
-      Array.from({ length: 10 }, () => deduct(id, 10000, key)),
+      Array.from({ length: 10 }, () => deduct(id, 10000, refId)),
     );
 
     const ok = attempts.filter((r) => r.statusCode === 201 || r.statusCode === 200);
@@ -163,7 +173,7 @@ describe('concurrency', () => {
     expect(entryIds.size).toBe(1);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
-    expect(bal.json().balancePaise).toBe(40000); // debited exactly once
+    expect(bal.json().balance).toBe(40000); // debited exactly once
   });
 });
 
@@ -171,31 +181,76 @@ describe('ledger invariant', () => {
   it('SUM(signed amounts) == wallets.balance after a chaos run', async () => {
     const id = await createWallet();
 
-    // Random mix of credits, valid debits, and over-balance debits in parallel.
     const ops: Promise<unknown>[] = [];
     for (let i = 0; i < 20; i++) ops.push(topup(id, 10000, randomUUID()));
     for (let i = 0; i < 30; i++) ops.push(deduct(id, 10000, randomUUID()));
     await Promise.all(ops);
 
     const wallet = await db.selectFrom('wallets').selectAll().where('id', '=', id).executeTakeFirstOrThrow();
-    const entries = await db.selectFrom('ledger_entries').selectAll().where('wallet_id', '=', id).execute();
+    const entries = await db
+      .selectFrom('wallet_ledger_entries')
+      .selectAll()
+      .where('wallet_id', '=', id)
+      .execute();
 
     const sum = entries.reduce(
-      (acc, e) => acc + (e.entry_type === 'CREDIT' ? e.amount_paise : -e.amount_paise),
+      (acc, e) => acc + (e.entry_type === 'CREDIT' ? e.amount : -e.amount),
       0,
     );
-    expect(sum).toBe(wallet.balance_paise);
-    expect(wallet.balance_paise).toBeGreaterThanOrEqual(0);
+    expect(sum).toBe(wallet.balance);
+    expect(wallet.balance).toBeGreaterThanOrEqual(0);
 
-    // Last ledger entry's balance_after must equal the wallet's current balance.
+    // Last entry's balance_after must equal the wallet's current balance.
     const last = entries.sort((a, b) => b.created_at.getTime() - a.created_at.getTime())[0];
-    if (last) expect(last.balance_after_paise).toBe(wallet.balance_paise);
+    if (last) expect(last.balance_after).toBe(wallet.balance);
+  });
+});
+
+describe('currency', () => {
+  it('rejects topup whose currency mismatches the wallet', async () => {
+    const id = await createWallet('INR');
+    const res = await app.inject({
+      method: 'POST',
+      url: `/wallets/${id}/topup`,
+      payload: {
+        amount: 10000,
+        referenceType: 'PAYMENT_SYSTEM',
+        referenceId: randomUUID(),
+        currency: 'USD',
+      },
+    });
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.code).toBe('CURRENCY_MISMATCH');
+  });
+
+  it('accepts a topup with matching currency', async () => {
+    const id = await createWallet('USD');
+    const res = await app.inject({
+      method: 'POST',
+      url: `/wallets/${id}/topup`,
+      payload: {
+        amount: 10000,
+        referenceType: 'PAYMENT_SYSTEM',
+        referenceId: randomUUID(),
+        currency: 'USD',
+      },
+    });
+    expect(res.statusCode).toBe(201);
   });
 });
 
 describe('validation and not-found', () => {
   it('rejects missing customerId', async () => {
-    const res = await app.inject({ method: 'POST', url: '/wallets', payload: {} });
+    const res = await app.inject({ method: 'POST', url: '/wallets', payload: { currency: 'INR' } });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects missing currency on wallet creation', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/wallets',
+      payload: { customerId: 'cust-1' },
+    });
     expect(res.statusCode).toBe(400);
   });
 
@@ -204,17 +259,17 @@ describe('validation and not-found', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/topup`,
-      payload: { amountPaise: 0, idempotencyKey: randomUUID() },
+      payload: { amount: 0, referenceType: 'PAYMENT_SYSTEM', referenceId: randomUUID() },
     });
     expect(res.statusCode).toBe(400);
   });
 
-  it('rejects missing idempotency key on mutation', async () => {
+  it('rejects missing reference fields on mutation', async () => {
     const id = await createWallet();
     const res = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/topup`,
-      payload: { amountPaise: 10000 },
+      payload: { amount: 10000 },
     });
     expect(res.statusCode).toBe(400);
   });

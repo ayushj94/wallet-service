@@ -1,7 +1,8 @@
-import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { ValidationError } from '../errors';
+import type { FastifyInstance } from 'fastify';
 import * as walletService from '../services/wallet-service';
-import type { LedgerEntryRow } from '../db/schema';
+import type { Currency, WalletLedgerEntryRow } from '../db/schema';
+
+const CURRENCY_VALUES = ['USD', 'EUR', 'GBP', 'CAD', 'INR'] as const;
 
 const idParam = {
   type: 'object',
@@ -11,97 +12,107 @@ const idParam = {
 
 const mutationBody = {
   type: 'object',
-  required: ['idempotencyKey'],
+  required: ['referenceType', 'referenceId'],
   properties: {
-    amountPaise: { type: 'integer', minimum: 1 },
-    idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 },
-    referenceId: { type: 'string', maxLength: 128 },
+    amount: { type: 'integer', minimum: 1 },
+    referenceType: { type: 'string', minLength: 1, maxLength: 32 },
+    referenceId: { type: 'string', minLength: 1, maxLength: 128 },
+    currency: { type: 'string', enum: CURRENCY_VALUES },
   },
   additionalProperties: false,
 } as const;
 
-const deductBody = { ...mutationBody, required: [] as string[] };
+const deductBody = { ...mutationBody, required: ['referenceType', 'referenceId'] };
+const topupBody = { ...mutationBody, required: ['amount', 'referenceType', 'referenceId'] };
 
-function entryDto(e: LedgerEntryRow): Record<string, unknown> {
+function entryDto(e: WalletLedgerEntryRow): Record<string, unknown> {
   return {
     id: e.id,
     walletId: e.wallet_id,
     entryType: e.entry_type,
-    amountPaise: e.amount_paise,
-    balanceAfterPaise: e.balance_after_paise,
-    idempotencyKey: e.idempotency_key,
+    amount: e.amount,
+    balanceAfter: e.balance_after,
+    referenceType: e.reference_type,
     referenceId: e.reference_id,
     createdAt: e.created_at,
   };
 }
 
-function readIdempotencyKey(req: FastifyRequest, bodyKey: string | undefined): string {
-  const header = req.headers['idempotency-key'];
-  const fromHeader = typeof header === 'string' ? header : Array.isArray(header) ? header[0] : undefined;
-  const key = fromHeader ?? bodyKey;
-  if (!key) throw new ValidationError('idempotencyKey is required (header Idempotency-Key or body field)');
-  return key;
-}
-
 export async function registerWalletRoutes(app: FastifyInstance): Promise<void> {
-  app.post<{ Body: { customerId: string } }>(
+  app.post<{ Body: { customerId: string; currency: Currency } }>(
     '/wallets',
     {
       schema: {
         body: {
           type: 'object',
-          required: ['customerId'],
-          properties: { customerId: { type: 'string', minLength: 1, maxLength: 64 } },
+          required: ['customerId', 'currency'],
+          properties: {
+            customerId: { type: 'string', minLength: 1, maxLength: 64 },
+            currency: { type: 'string', enum: CURRENCY_VALUES },
+          },
           additionalProperties: false,
         },
       },
     },
     async (req, reply) => {
-      const wallet = await walletService.createWallet({ customerId: req.body.customerId });
+      const wallet = await walletService.createWallet({
+        customerId: req.body.customerId,
+        currency: req.body.currency,
+      });
       return reply.code(201).send({
         id: wallet.id,
         customerId: wallet.customer_id,
-        balancePaise: wallet.balance_paise,
+        currency: wallet.currency,
+        balance: wallet.balance,
         createdAt: wallet.created_at,
       });
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { amountPaise: number; idempotencyKey?: string; referenceId?: string } }>(
+  app.post<{
+    Params: { id: string };
+    Body: { amount: number; referenceType: string; referenceId: string; currency?: Currency };
+  }>(
     '/wallets/:id/topup',
-    { schema: { params: idParam, body: { ...mutationBody, required: ['amountPaise', 'idempotencyKey'] } } },
+    { schema: { params: idParam, body: topupBody } },
     async (req, reply) => {
-      const idempotencyKey = readIdempotencyKey(req, req.body.idempotencyKey);
       const result = await walletService.topup({
         walletId: req.params.id,
-        amountPaise: req.body.amountPaise,
-        idempotencyKey,
+        amount: req.body.amount,
+        referenceType: req.body.referenceType,
         referenceId: req.body.referenceId,
+        currency: req.body.currency,
       });
       return reply.code(result.idempotent ? 200 : 201).send({
         entry: entryDto(result.entry),
-        balancePaise: result.balancePaise,
+        balance: result.balance,
+        currency: result.currency,
         idempotent: result.idempotent,
       });
     },
   );
 
-  app.post<{ Params: { id: string }; Body: { amountPaise?: number; idempotencyKey?: string; referenceId?: string } }>(
+  app.post<{
+    Params: { id: string };
+    Body: { amount?: number; referenceType: string; referenceId: string; currency?: Currency };
+  }>(
     '/wallets/:id/deduct',
     { schema: { params: idParam, body: deductBody } },
     async (req, reply) => {
-      // Spec fixes deduct at ₹100. Default kept so the spec's flow works with no body fields.
-      const amountPaise = req.body.amountPaise ?? 10000;
-      const idempotencyKey = readIdempotencyKey(req, req.body.idempotencyKey);
+      // Spec fixes deduct at ₹100 for the order flow. Default keeps that case
+      // ergonomic; clients with other amounts pass them explicitly.
+      const amount = req.body.amount ?? 10000;
       const result = await walletService.deduct({
         walletId: req.params.id,
-        amountPaise,
-        idempotencyKey,
+        amount,
+        referenceType: req.body.referenceType,
         referenceId: req.body.referenceId,
+        currency: req.body.currency,
       });
       return reply.code(result.idempotent ? 200 : 201).send({
         entry: entryDto(result.entry),
-        balancePaise: result.balancePaise,
+        balance: result.balance,
+        currency: result.currency,
         idempotent: result.idempotent,
       });
     },
@@ -112,7 +123,7 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
     { schema: { params: idParam } },
     async (req) => {
       const result = await walletService.getBalance(req.params.id);
-      return { walletId: result.walletId, balancePaise: result.balancePaise };
+      return { walletId: result.walletId, balance: result.balance, currency: result.currency };
     },
   );
 

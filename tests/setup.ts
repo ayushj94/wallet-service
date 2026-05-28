@@ -11,8 +11,8 @@ beforeAll(async () => {
 });
 
 beforeEach(async () => {
-  // Truncate between tests. FK from ledger_entries->wallets means order matters.
-  await db.deleteFrom('ledger_entries').execute();
+  // FK from wallet_ledger_entries → wallets means order matters.
+  await db.deleteFrom('wallet_ledger_entries').execute();
   await db.deleteFrom('wallets').execute();
 });
 

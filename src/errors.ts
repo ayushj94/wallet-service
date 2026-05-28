@@ -16,11 +16,21 @@ export class NotFoundError extends AppError {
 }
 
 export class InsufficientBalanceError extends AppError {
-  constructor(walletId: string, balancePaise: number, requestedPaise: number) {
+  constructor(walletId: string, balance: number, requested: number) {
     super(
       'INSUFFICIENT_BALANCE',
       422,
-      `Wallet ${walletId} balance ${balancePaise} paise is less than requested ${requestedPaise} paise`,
+      `Wallet ${walletId} balance ${balance} is less than requested ${requested}`,
+    );
+  }
+}
+
+export class CurrencyMismatchError extends AppError {
+  constructor(walletCurrency: string, requestedCurrency: string) {
+    super(
+      'CURRENCY_MISMATCH',
+      422,
+      `Wallet currency is ${walletCurrency}; request specified ${requestedCurrency}`,
     );
   }
 }
