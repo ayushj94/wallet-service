@@ -8,21 +8,21 @@ export interface WalletTable {
   updated_at: Generated<Date>;
 }
 
-export interface TransactionTable {
+export interface LedgerEntryTable {
   id: string;
   wallet_id: string;
-  type: 'TOPUP' | 'DEDUCT';
+  entry_type: 'CREDIT' | 'DEBIT';
   amount_paise: number;
   balance_after_paise: number;
   idempotency_key: string;
-  reference: string | null;
+  reference_id: string | null;
   created_at: Generated<Date>;
 }
 
 export interface Database {
   wallets: WalletTable;
-  transactions: TransactionTable;
+  ledger_entries: LedgerEntryTable;
 }
 
 export type WalletRow = Selectable<WalletTable>;
-export type TransactionRow = Selectable<TransactionTable>;
+export type LedgerEntryRow = Selectable<LedgerEntryTable>;

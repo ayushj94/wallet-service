@@ -7,5 +7,6 @@ export default defineConfig({
     testTimeout: 30000,
     pool: 'forks',
     poolOptions: { forks: { singleFork: true } },
+    env: { LOG_LEVEL: 'silent' },
   },
 });

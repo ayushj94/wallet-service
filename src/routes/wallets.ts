@@ -1,123 +1,135 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { ValidationError } from '../errors';
 import * as walletService from '../services/wallet-service';
-import type { TransactionRow } from '../db/schema';
+import type { LedgerEntryRow } from '../db/schema';
 
-interface CreateWalletBody {
-  customerId: string;
-}
+const idParam = {
+  type: 'object',
+  required: ['id'],
+  properties: { id: { type: 'string', minLength: 1 } },
+} as const;
 
-interface MutationBody {
-  amountPaise?: number;
-  idempotencyKey?: string;
-  reference?: string;
-}
+const mutationBody = {
+  type: 'object',
+  required: ['idempotencyKey'],
+  properties: {
+    amountPaise: { type: 'integer', minimum: 1 },
+    idempotencyKey: { type: 'string', minLength: 1, maxLength: 128 },
+    referenceId: { type: 'string', maxLength: 128 },
+  },
+  additionalProperties: false,
+} as const;
 
-interface WalletIdParams {
-  id: string;
-}
+const deductBody = { ...mutationBody, required: [] as string[] };
 
-function txnDto(t: TransactionRow): Record<string, unknown> {
+function entryDto(e: LedgerEntryRow): Record<string, unknown> {
   return {
-    id: t.id,
-    walletId: t.wallet_id,
-    type: t.type,
-    amountPaise: t.amount_paise,
-    balanceAfterPaise: t.balance_after_paise,
-    idempotencyKey: t.idempotency_key,
-    reference: t.reference,
-    createdAt: t.created_at,
+    id: e.id,
+    walletId: e.wallet_id,
+    entryType: e.entry_type,
+    amountPaise: e.amount_paise,
+    balanceAfterPaise: e.balance_after_paise,
+    idempotencyKey: e.idempotency_key,
+    referenceId: e.reference_id,
+    createdAt: e.created_at,
   };
 }
 
-function readIdempotencyKey(req: FastifyRequest, body: MutationBody): string {
+function readIdempotencyKey(req: FastifyRequest, bodyKey: string | undefined): string {
   const header = req.headers['idempotency-key'];
   const fromHeader = typeof header === 'string' ? header : Array.isArray(header) ? header[0] : undefined;
-  const key = fromHeader ?? body.idempotencyKey;
-  if (!key) {
-    throw new ValidationError('idempotencyKey is required (header Idempotency-Key or body field)');
-  }
+  const key = fromHeader ?? bodyKey;
+  if (!key) throw new ValidationError('idempotencyKey is required (header Idempotency-Key or body field)');
   return key;
 }
 
 export async function registerWalletRoutes(app: FastifyInstance): Promise<void> {
-  app.post<{ Body: CreateWalletBody }>('/wallets', async (req, reply) => {
-    const { customerId } = req.body ?? ({} as CreateWalletBody);
-    if (!customerId || typeof customerId !== 'string') {
-      throw new ValidationError('customerId is required');
-    }
-    const wallet = await walletService.createWallet({ customerId });
-    return reply.code(201).send({
-      id: wallet.id,
-      customerId: wallet.customer_id,
-      balancePaise: wallet.balance_paise,
-      createdAt: wallet.created_at,
-    });
-  });
+  app.post<{ Body: { customerId: string } }>(
+    '/wallets',
+    {
+      schema: {
+        body: {
+          type: 'object',
+          required: ['customerId'],
+          properties: { customerId: { type: 'string', minLength: 1, maxLength: 64 } },
+          additionalProperties: false,
+        },
+      },
+    },
+    async (req, reply) => {
+      const wallet = await walletService.createWallet({ customerId: req.body.customerId });
+      return reply.code(201).send({
+        id: wallet.id,
+        customerId: wallet.customer_id,
+        balancePaise: wallet.balance_paise,
+        createdAt: wallet.created_at,
+      });
+    },
+  );
 
-  app.post<{ Params: WalletIdParams; Body: MutationBody }>(
+  app.post<{ Params: { id: string }; Body: { amountPaise: number; idempotencyKey?: string; referenceId?: string } }>(
     '/wallets/:id/topup',
-    async (req: FastifyRequest<{ Params: WalletIdParams; Body: MutationBody }>, reply: FastifyReply) => {
-      const body = req.body ?? {};
-      const amountPaise = body.amountPaise;
-      if (typeof amountPaise !== 'number' || !Number.isInteger(amountPaise) || amountPaise <= 0) {
-        throw new ValidationError('amountPaise must be a positive integer');
-      }
-      const idempotencyKey = readIdempotencyKey(req, body);
-
+    { schema: { params: idParam, body: { ...mutationBody, required: ['amountPaise', 'idempotencyKey'] } } },
+    async (req, reply) => {
+      const idempotencyKey = readIdempotencyKey(req, req.body.idempotencyKey);
       const result = await walletService.topup({
         walletId: req.params.id,
-        amountPaise,
+        amountPaise: req.body.amountPaise,
         idempotencyKey,
-        reference: body.reference,
+        referenceId: req.body.referenceId,
       });
-
       return reply.code(result.idempotent ? 200 : 201).send({
-        transaction: txnDto(result.transaction),
+        entry: entryDto(result.entry),
         balancePaise: result.balancePaise,
         idempotent: result.idempotent,
       });
     },
   );
 
-  app.post<{ Params: WalletIdParams; Body: MutationBody }>(
+  app.post<{ Params: { id: string }; Body: { amountPaise?: number; idempotencyKey?: string; referenceId?: string } }>(
     '/wallets/:id/deduct',
+    { schema: { params: idParam, body: deductBody } },
     async (req, reply) => {
-      const body = req.body ?? {};
-      // Spec fixes deduct at ₹100. We accept the amount in the body for flexibility,
-      // but default to 10000 paise (₹100) when missing — matches the assignment's flow.
-      const amountPaise = body.amountPaise ?? 10000;
-      if (!Number.isInteger(amountPaise) || amountPaise <= 0) {
-        throw new ValidationError('amountPaise must be a positive integer');
-      }
-      const idempotencyKey = readIdempotencyKey(req, body);
-
+      // Spec fixes deduct at ₹100. Default kept so the spec's flow works with no body fields.
+      const amountPaise = req.body.amountPaise ?? 10000;
+      const idempotencyKey = readIdempotencyKey(req, req.body.idempotencyKey);
       const result = await walletService.deduct({
         walletId: req.params.id,
         amountPaise,
         idempotencyKey,
-        reference: body.reference,
+        referenceId: req.body.referenceId,
       });
-
       return reply.code(result.idempotent ? 200 : 201).send({
-        transaction: txnDto(result.transaction),
+        entry: entryDto(result.entry),
         balancePaise: result.balancePaise,
         idempotent: result.idempotent,
       });
     },
   );
 
-  app.get<{ Params: WalletIdParams }>('/wallets/:id/balance', async (req) => {
-    const result = await walletService.getBalance(req.params.id);
-    return { walletId: result.walletId, balancePaise: result.balancePaise };
-  });
-
-  app.get<{ Params: WalletIdParams; Querystring: { limit?: string } }>(
-    '/wallets/:id/transactions',
+  app.get<{ Params: { id: string } }>(
+    '/wallets/:id/balance',
+    { schema: { params: idParam } },
     async (req) => {
-      const limit = req.query.limit ? Math.min(Number(req.query.limit), 500) : 100;
-      const rows = await walletService.listTransactions(req.params.id, limit);
-      return { walletId: req.params.id, transactions: rows.map(txnDto) };
+      const result = await walletService.getBalance(req.params.id);
+      return { walletId: result.walletId, balancePaise: result.balancePaise };
+    },
+  );
+
+  app.get<{ Params: { id: string }; Querystring: { limit?: number } }>(
+    '/wallets/:id/transactions',
+    {
+      schema: {
+        params: idParam,
+        querystring: {
+          type: 'object',
+          properties: { limit: { type: 'integer', minimum: 1, maximum: 500 } },
+        },
+      },
+    },
+    async (req) => {
+      const rows = await walletService.listLedgerEntries(req.params.id, req.query.limit ?? 100);
+      return { walletId: req.params.id, entries: rows.map(entryDto) };
     },
   );
 }

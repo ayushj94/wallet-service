@@ -1,7 +1,7 @@
 # Prepaid Wallet Service
 
 A small HTTP service that owns customer wallet balances and records every money movement
-as an append-only ledger. Take-home submission.
+as an append-only **ledger**. Take-home submission.
 
 **Stack:** Node 20, TypeScript, Fastify, MySQL 8, Kysely (type-safe SQL builder), Vitest.
 
@@ -52,9 +52,9 @@ curl -s -X POST localhost:8080/wallets/$WALLET/topup \
 curl -s -X POST localhost:8080/wallets/$WALLET/deduct \
   -H 'content-type: application/json' \
   -H 'idempotency-key: order-abc-123' \
-  -d '{"amountPaise":10000,"reference":"order-abc-123"}'
+  -d '{"amountPaise":10000,"referenceId":"order-abc-123"}'
 
-# replay the same deduct — same transaction, balance unchanged
+# replay the same deduct — same ledger entry, balance unchanged
 curl -s -X POST localhost:8080/wallets/$WALLET/deduct \
   -H 'content-type: application/json' \
   -H 'idempotency-key: order-abc-123' \
@@ -77,13 +77,13 @@ npx tsx order-service-stub/place-order.ts <wallet-id> --retry
 
 ## API
 
-| Method | Path                          | Body / Headers                                                          | Description                                  |
-| ------ | ----------------------------- | ----------------------------------------------------------------------- | -------------------------------------------- |
-| POST   | `/wallets`                    | `{ "customerId": string }`                                              | Create a wallet                              |
-| POST   | `/wallets/:id/topup`          | `{ "amountPaise": int, "idempotencyKey": string, "reference"?: string }` | Add funds                                    |
-| POST   | `/wallets/:id/deduct`         | same as topup; `amountPaise` defaults to 10000 (₹100)                    | Deduct funds (idempotent)                    |
-| GET    | `/wallets/:id/balance`        | —                                                                       | Current balance                              |
-| GET    | `/wallets/:id/transactions`   | `?limit=N` (default 100, max 500)                                       | Ledger history, newest first                 |
+| Method | Path                          | Body / Headers                                                            | Description                                |
+| ------ | ----------------------------- | ------------------------------------------------------------------------- | ------------------------------------------ |
+| POST   | `/wallets`                    | `{ "customerId": string }`                                                | Create a wallet                            |
+| POST   | `/wallets/:id/topup`          | `{ "amountPaise": int, "idempotencyKey": string, "referenceId"?: string }` | Add funds (CREDIT ledger entry)            |
+| POST   | `/wallets/:id/deduct`         | same as topup; `amountPaise` defaults to 10000 (₹100)                      | Deduct funds (DEBIT, idempotent)           |
+| GET    | `/wallets/:id/balance`        | —                                                                         | Current balance                            |
+| GET    | `/wallets/:id/transactions`   | `?limit=N` (default 100, max 500)                                         | Ledger entries, newest first               |
 
 `idempotencyKey` can also be passed via the `Idempotency-Key` HTTP header.
 
@@ -91,8 +91,8 @@ npx tsx order-service-stub/place-order.ts <wallet-id> --retry
 
 | Code | When                                                                 |
 | ---- | -------------------------------------------------------------------- |
-| 201  | Resource created (wallet, transaction)                               |
-| 200  | Idempotent replay — returns the prior transaction unchanged          |
+| 201  | Resource created (wallet, ledger entry)                              |
+| 200  | Idempotent replay — returns the prior ledger entry unchanged         |
 | 400  | Validation error (missing field, non-positive amount, …)             |
 | 404  | Wallet not found                                                     |
 | 422  | Insufficient balance on deduct                                       |
@@ -103,15 +103,15 @@ npx tsx order-service-stub/place-order.ts <wallet-id> --retry
 ## Data model
 
 ```
-wallets                                    transactions
+wallets                                    ledger_entries
 ─────────────────────────                  ──────────────────────────────────
 id                CHAR(36) PK              id                  CHAR(36) PK
 customer_id       VARCHAR UNIQUE           wallet_id           CHAR(36) FK→wallets
-balance_paise     BIGINT                   type                ENUM(TOPUP, DEDUCT)
+balance_paise     BIGINT                   entry_type          ENUM(CREDIT, DEBIT)
 created_at        TIMESTAMP                amount_paise        BIGINT (always positive)
 updated_at        TIMESTAMP                balance_after_paise BIGINT (snapshot for audit)
                                            idempotency_key     VARCHAR
-CHECK (balance_paise >= 0)                 reference           VARCHAR NULL
+CHECK (balance_paise >= 0)                 reference_id        VARCHAR NULL
                                            created_at          TIMESTAMP(3)
 
                                            UNIQUE (wallet_id, idempotency_key)
@@ -123,14 +123,20 @@ Key choices:
 
 - **Money in paise (integer), never floats.** No rounding drift, no decimal-versus-binary
   surprises. Display formatting is a client concern.
-- **`amount_paise` is always positive**; `type` carries the direction. Easier to query and
-  read than signed amounts.
-- **`balance_after_paise` snapshot on each transaction.** Lets us verify the invariant
+- **Append-only ledger (`ledger_entries`).** The wallet balance is a derived projection of
+  the ledger — every business event is a row, and the wallet row is the running total.
+- **`entry_type: CREDIT | DEBIT`.** Standard double-entry terminology. CREDIT = money into
+  the wallet (topup), DEBIT = money out (deduct). `amount_paise` is always positive; the
+  type carries direction.
+- **`balance_after_paise` snapshot on each entry.** Lets us verify the invariant
   `SUM(signed amounts) == wallets.balance_paise` cheaply, and makes the ledger
-  self-describing — you can reconstruct any past balance without replaying logic.
+  self-describing — any past balance is reconstructable without replaying logic.
+- **`reference_id`** carries the external business identifier (e.g. order_id for debits,
+  payment-gateway txn for credits). Distinct from `idempotency_key`, which is a transport
+  concern.
 - **`CHECK (balance_paise >= 0)`** at the DB layer. The application enforces this too, but
-  the DB constraint is a defense-in-depth backstop — if an application bug ever tries to
-  write a negative balance, MySQL rejects it.
+  the DB constraint is a defense-in-depth backstop — if application logic ever tried to
+  write a negative balance, MySQL would reject.
 - **`UNIQUE (wallet_id, idempotency_key)`.** Idempotency keys are scoped per wallet so two
   customers can use overlapping keys without conflict.
 
@@ -138,7 +144,7 @@ Key choices:
 
 ## Correctness: the two hard cases
 
-### 1. Concurrent deducts on the same wallet
+### 1. Concurrent debits on the same wallet
 
 If two `/deduct` requests arrive at the same time for a wallet with ₹100, only one must
 succeed. The naive implementation (read balance, check, write) has a TOCTOU race that lets
@@ -151,10 +157,10 @@ updated balance and either proceeds or fails cleanly. MySQL InnoDB does this in 
 Belt-and-braces: there's also a `CHECK (balance_paise >= 0)` constraint, so if the
 application logic were ever bypassed the DB would still reject the write.
 
-See `src/services/wallet-service.ts` → `applyMutation`. The lock acquisition is the very
-first thing inside the transaction.
+See `src/services/wallet-service.ts` → `recordLedgerEntry`. The lock acquisition is the
+very first thing inside the transaction.
 
-### 2. Idempotent deduct (and topup)
+### 2. Idempotent debit (and credit)
 
 The Order Service may retry a `/deduct` call after a network blip; we must charge once.
 
@@ -162,43 +168,43 @@ The approach:
 
 1. Inside the same transaction, **after taking the wallet lock**, look up the
    `(wallet_id, idempotency_key)` pair.
-2. If a transaction with that key already exists, return its data with `idempotent: true`.
-3. Otherwise, insert the new transaction and update the balance.
+2. If a ledger entry with that key already exists, return it with `idempotent: true`.
+3. Otherwise, insert the new entry and update the balance.
 
 Locking the wallet **before** the idempotency check is what makes concurrent retries safe:
 two requests with the same key serialize on the wallet row, so the second one sees the
-first's committed transaction when it does its idempotency lookup.
+first's committed entry when it does its idempotency lookup.
 
 The `UNIQUE (wallet_id, idempotency_key)` constraint is a defense-in-depth backstop —
 the application path shouldn't hit it, but if a bug ever broke the lock-then-check order,
 the DB would reject the duplicate insert and the error handler maps it to a clean 409.
 
 **The spec only required `/deduct` to be idempotent, but I made `/topup` idempotent too**
-using the same mechanism. Topup retries are just as real (payment-gateway webhooks, frontend
-retries) and a double-credit is arguably worse than a double-debit. Same code path, no
-special cases.
+using the same mechanism. Topup retries are just as real (payment-gateway webhooks,
+frontend retries) and a double-credit is arguably worse than a double-debit. Same code
+path, no special cases.
 
 ---
 
 ## Testing methodology
 
-The test suite (`tests/wallet.test.ts`) runs against a real MySQL instance — not an in-memory
-mock — because the correctness questions this service is built around (row locks, unique
-constraints, isolation) are precisely what mocks would paper over.
+The test suite (`tests/wallet.test.ts`) runs against a real MySQL instance — not an
+in-memory mock — because the correctness questions this service is built around (row
+locks, unique constraints, isolation) are precisely what mocks would paper over.
 
 What it covers:
 
 | Class of test          | What it asserts                                                                          |
 | ---------------------- | ---------------------------------------------------------------------------------------- |
-| Happy path             | Create → topup → deduct → balance/history reflects every operation                       |
-| Balance constraint     | Deduct rejected on empty/insufficient wallet; balance unchanged. Exact-balance deduct OK |
-| Idempotency (deduct)   | Same key returns same transaction, balance unchanged                                     |
-| Idempotency (topup)    | Same — extra safety not in the spec                                                      |
+| Happy path             | Create → credit → debit → balance/ledger reflects every operation                        |
+| Balance constraint     | Debit rejected on empty/insufficient wallet; balance unchanged. Exact-balance debit OK   |
+| Idempotency (debit)    | Same key returns same entry, balance unchanged                                           |
+| Idempotency (credit)   | Same — extra safety not in the spec                                                      |
 | Idempotency via header | `Idempotency-Key` HTTP header works in addition to body field                            |
-| **Concurrent deducts** | 10 parallel requests on a ₹300 wallet → exactly 3 succeed, 7 fail with 422               |
-| **Concurrent retries** | 10 parallel requests with same idempotency key → exactly one transaction created         |
+| **Concurrent debits**  | 10 parallel requests on a ₹300 wallet → exactly 3 succeed, 7 fail with 422               |
+| **Concurrent retries** | 10 parallel requests with same idempotency key → exactly one ledger entry created        |
 | **Chaos / invariant**  | 50 mixed parallel ops → assert `SUM(signed amounts) == wallets.balance` afterwards       |
-| Validation             | Missing fields, non-positive amounts → 400                                                |
+| Validation             | Missing fields, non-positive amounts → 400 (Fastify JSON-schema validation)              |
 | Not found              | Unknown wallet → 404 on all paths                                                         |
 
 Run:
@@ -212,7 +218,7 @@ npm test
 ```
 
 The chaos test is the most valuable one — it's the test I'd run after any change to the
-mutation path. If `SUM(signed amounts) == wallets.balance` ever fails, something is
+ledger path. If `SUM(signed amounts) == wallets.balance` ever fails, something is
 fundamentally wrong with the locking or idempotency.
 
 ---
@@ -232,21 +238,30 @@ fundamentally wrong with the locking or idempotency.
   can drift) without making anything safer. Redis would be a great fit for
   rate-limiting-per-wallet or hot-balance read caching, neither of which the assignment
   needs.
-- **Idempotency stored on the transaction row, not a separate table.** Stripe-style
-  separate `idempotency_keys` tables let you cache the full response body for byte-exact
-  replay. Here, the response is small and derivable from the transaction row, so an extra
-  table would be over-engineering.
+- **Idempotency stored on the ledger row, not a separate table.** Stripe-style separate
+  `idempotency_keys` tables let you cache the full response body for byte-exact replay.
+  Here, the response is small and derivable from the ledger entry, so an extra table
+  would be over-engineering.
 - **`amountPaise` accepted on `/deduct` even though spec fixes it at ₹100.** Defaults to
   10000 paise when missing, so the spec's "₹100 per order" flow works with no body. But
   it's parameterised so tests can exercise different amounts.
+- **JSON-schema request validation via Fastify.** Declarative schemas at the route
+  registration site instead of imperative `if`-checks in handlers. Standard Fastify
+  pattern; rejects bad input before the handler runs.
 
 ---
 
 ## What I'd do with more time
 
 - **Per-wallet rate limiting** with Redis — protect against runaway clients or abuse.
-- **Reconciliation job** that periodically asserts `SUM(transactions) == wallets.balance`
-  across every wallet and alerts if it drifts.
+- **Reconciliation job** that periodically asserts `SUM(ledger) == wallets.balance` across
+  every wallet and alerts if it drifts.
+- **More ledger entry types** — `REFUND`, `ADJUSTMENT`, `BONUS_CREDIT`, etc. The
+  `entry_type` column is the natural extension point; adding new values doesn't change the
+  shape of the ledger.
+- **Pending → completed states.** Real wallets often have a `status` column
+  (`PENDING/COMPLETED/REVERSED`) to model in-flight settlement. Out of scope here but the
+  ledger shape already accommodates it.
 - **Optimistic-locking read path for balance** — currently `GET /balance` reads the
   `wallets` row directly, which is fine, but for very high read-to-write ratios I'd cache
   it in Redis with invalidation on every successful mutation.
@@ -278,10 +293,10 @@ fundamentally wrong with the locking or idempotency.
 │   ├── config.ts               # env vars
 │   ├── db/
 │   │   ├── index.ts            # Kysely + mysql2 pool
-│   │   ├── schema.ts           # row types
+│   │   ├── schema.ts           # row types (wallets, ledger_entries)
 │   │   └── migrate.ts          # CLI: run SQL files in order
 │   ├── routes/
-│   │   └── wallets.ts          # HTTP layer (validation, DTO shaping)
+│   │   └── wallets.ts          # HTTP layer (JSON-schema validation, DTO shaping)
 │   ├── services/
 │   │   └── wallet-service.ts   # business logic — locking + idempotency
 │   └── errors.ts               # AppError → status code mapping

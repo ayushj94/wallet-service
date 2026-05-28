@@ -7,7 +7,7 @@
  * Demonstrates:
  *   - Normal happy-path deduction.
  *   - Idempotency: re-sending the same order_id (used as the idempotency key)
- *     gives back the same transaction without double-deducting.
+ *     gives back the same ledger entry without double-deducting.
  *   - Failure path: insufficient balance is surfaced cleanly.
  *
  * Usage:
@@ -18,7 +18,7 @@ import { randomUUID } from 'node:crypto';
 const WALLET_BASE_URL = process.env.WALLET_BASE_URL ?? 'http://localhost:8080';
 
 interface DeductResponse {
-  transaction: { id: string; amountPaise: number; balanceAfterPaise: number };
+  entry: { id: string; amountPaise: number; balanceAfterPaise: number };
   balancePaise: number;
   idempotent: boolean;
 }
@@ -31,7 +31,7 @@ async function callDeduct(walletId: string, orderId: string): Promise<{ status: 
   const res = await fetch(`${WALLET_BASE_URL}/wallets/${walletId}/deduct`, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'idempotency-key': orderId },
-    body: JSON.stringify({ amountPaise: 10000, reference: orderId }),
+    body: JSON.stringify({ amountPaise: 10000, referenceId: orderId }),
   });
   return { status: res.status, body: (await res.json()) as DeductResponse | ErrorResponse };
 }
@@ -49,7 +49,7 @@ async function placeOrder(walletId: string, opts: { retry: boolean }): Promise<v
   }
 
   const ok = body as DeductResponse;
-  console.log(`[order-service] Deduct OK — txn ${ok.transaction.id}, balance now ${ok.balancePaise} paise`);
+  console.log(`[order-service] Deduct OK — ledger entry ${ok.entry.id}, balance now ${ok.balancePaise} paise`);
   console.log(`[order-service] Order ${orderId} CONFIRMED`);
 
   if (opts.retry) {
@@ -61,9 +61,9 @@ async function placeOrder(walletId: string, opts: { retry: boolean }): Promise<v
       process.exit(1);
     }
     console.log(
-      `[order-service] Retry response — idempotent=${r.idempotent}, same txn id=${r.transaction.id === ok.transaction.id}, balance still ${r.balancePaise}`,
+      `[order-service] Retry response — idempotent=${r.idempotent}, same entry id=${r.entry.id === ok.entry.id}, balance still ${r.balancePaise}`,
     );
-    if (!r.idempotent || r.transaction.id !== ok.transaction.id || r.balancePaise !== ok.balancePaise) {
+    if (!r.idempotent || r.entry.id !== ok.entry.id || r.balancePaise !== ok.balancePaise) {
       console.error('[order-service] Idempotency check FAILED');
       process.exit(1);
     }
