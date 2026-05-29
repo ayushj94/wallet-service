@@ -583,17 +583,28 @@ So the same integer means wildly different things across currencies:
 </tr>
 </table>
 
-### What we do today, and what we'd add at scale
+### Single-currency wallets today
 
-For our 5 supported currencies — `USD`, `EUR`, `GBP`, `CAD`, `INR`, all 2-decimal — the precision-confusion risk is genuinely small. Every caller assumes "minor unit = ×100" and is correct.
+Each wallet is created in exactly one currency and only accepts operations in
+that same currency. Every mutation request **must** include a `currency` field;
+if it doesn't match the wallet's currency, the request is rejected with
+`422 CURRENCY_MISMATCH` before any state changes.
 
-> 🛡 The trouble starts the moment we add JPY without thinking. With more time, the priority changes:
->
-> 1. **Per-currency maximums** as a sanity net (the Stripe technique).
-> 2. **A shared `Money` library** exposed to all callers so the conversion logic isn't reimplemented per team.
-> 3. **Explicit OpenAPI documentation** of decimal places per currency with worked examples.
+> 🔑 **No implicit defaults anywhere.** Financial systems are too critical for "I
+> assume this is INR" to ever be true on the server side. `currency` is required
+> at wallet creation, on every topup, and on every deduct.
 
-We also added an **optional `currency` field** on topup/deduct: if provided, it must match the wallet's currency, otherwise we return `422 CURRENCY_MISMATCH`. This catches "I thought this was a USD wallet" bugs at the call site instead of after silent mis-conversion.
+This is a deliberate constraint, not a limitation of the underlying design — it
+makes the simple case provably safe.
+
+### What we'd add at scale
+
+| | |
+| --- | --- |
+| 💱 **Cross-currency operations via FX conversion** | A USD wallet receiving a EUR topup would call a real-time FX provider (e.g. Wise, Currencylayer, Open Exchange Rates), convert at the locked-in rate, record the conversion as part of the ledger entry's metadata (`original_amount`, `original_currency`, `fx_rate`, `fx_provider`), and complete the operation in the wallet's native currency. The ledger preserves auditability of the original amount and the rate used. |
+| 🛡 **Per-currency maximums** as a sanity net | Reject amounts above a sensible ceiling per currency. Catches precision-shifted bugs (a "100× too big" amount usually trips the ceiling). This is the Stripe technique. |
+| 📦 **Shared `Money` library** | A common helper exposed to all callers so the decimal↔minor-unit conversion isn't reimplemented per team. `Money.fromDecimal("10.50", "USD")` → `1050`. |
+| 📖 **Explicit OpenAPI documentation** | Per-currency decimal places with worked examples. Generated from the JSON schemas. |
 
 ---
 
@@ -704,9 +715,10 @@ npm test                        # run the suite
 
 **🧩 Features**
 
+- **Cross-currency operations** via real-time FX conversion (e.g. USD wallet, EUR topup → fetch rate, convert, record both original and converted amounts on the ledger)
 - More entry types — `REFUND`, `ADJUSTMENT`, `BONUS_CREDIT`
 - Settlement states — `PENDING` → `COMPLETED`
-- Multi-currency per customer (one customer, multiple wallets)
+- Multiple wallets per customer (different currencies for the same person)
 - Shared `Money` helper library for callers
 
 </td>
