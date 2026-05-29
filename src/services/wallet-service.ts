@@ -19,7 +19,7 @@ export interface LedgerOperationInput {
   amount: number;
   referenceType: string;
   referenceId: string;
-  currency?: Currency; // optional safety check — if set, must match the wallet's
+  currency: Currency; // required — must match the wallet's currency
 }
 
 export interface LedgerOperationResult {
@@ -30,12 +30,11 @@ export interface LedgerOperationResult {
 }
 
 export async function createWallet(input: CreateWalletInput): Promise<WalletRow> {
-  const id = randomUUID();
-  await db
+  return db
     .insertInto('wallets')
-    .values({ id, customer_id: input.customerId, currency: input.currency, balance: 0 })
-    .execute();
-  return db.selectFrom('wallets').selectAll().where('id', '=', id).executeTakeFirstOrThrow();
+    .values({ id: randomUUID(), customer_id: input.customerId, currency: input.currency, balance: 0 })
+    .returningAll()
+    .executeTakeFirstOrThrow();
 }
 
 export async function getBalance(
@@ -81,8 +80,8 @@ export async function deduct(input: LedgerOperationInput): Promise<LedgerOperati
  * Records a credit or debit using Postgres' optimistic concurrency pattern.
  *
  * The flow:
- *   1. Fast path — have we already processed this (referenceType, referenceId)?
- *      If yes, return the stored result. Cheap single SELECT.
+ *   1. Fast path — has this (referenceType, referenceId) already been recorded
+ *      against this wallet? If yes, return the prior entry. One SELECT.
  *   2. Slow path — open a transaction and:
  *      a. Conditionally update the wallet balance with RETURNING. The WHERE
  *         clause refuses the update if the resulting balance would be negative,
@@ -110,17 +109,17 @@ async function recordLedgerEntry(
 ): Promise<LedgerOperationResult> {
   const wallet = await db
     .selectFrom('wallets')
-    .select(['id', 'balance', 'currency'])
+    .select('currency')
     .where('id', '=', input.walletId)
     .executeTakeFirst();
   if (!wallet) throw new NotFoundError(`Wallet ${input.walletId} not found`);
 
-  if (input.currency && input.currency !== wallet.currency) {
+  if (input.currency !== wallet.currency) {
     throw new CurrencyMismatchError(wallet.currency, input.currency);
   }
 
-  // 1. Fast path: already processed?
-  const cached = await db
+  // 1. Fast path: has this instruction already been recorded?
+  const priorEntry = await db
     .selectFrom('wallet_ledger_entries')
     .selectAll()
     .where('wallet_id', '=', input.walletId)
@@ -128,15 +127,12 @@ async function recordLedgerEntry(
     .where('reference_id', '=', input.referenceId)
     .executeTakeFirst();
 
-  if (cached) {
-    const latest = await db
-      .selectFrom('wallets')
-      .select('balance')
-      .where('id', '=', input.walletId)
-      .executeTakeFirstOrThrow();
+  if (priorEntry) {
+    // Return the balance as it was right after this operation.
+    // That's what the original call returned — what an idempotent replay should match.
     return {
-      entry: cached,
-      balance: latest.balance,
+      entry: priorEntry,
+      balance: priorEntry.balance_after,
       currency: wallet.currency,
       idempotent: true,
     };
@@ -148,9 +144,11 @@ async function recordLedgerEntry(
       const signed = entryType === 'CREDIT' ? input.amount : -input.amount;
 
       // Conditional update — moves balance only if the new value would be non-negative.
+      // updated_at is bumped explicitly because Postgres doesn't have MySQL's
+      // ON UPDATE CURRENT_TIMESTAMP behaviour.
       const updated = await trx
         .updateTable('wallets')
-        .set({ balance: sql<number>`balance + ${signed}` })
+        .set({ balance: sql<number>`balance + ${signed}`, updated_at: sql<Date>`NOW()` })
         .where('id', '=', input.walletId)
         .where(sql<boolean>`balance + ${signed} >= 0`)
         .returning('balance')
@@ -210,14 +208,9 @@ async function recordLedgerEntry(
         .where('reference_type', '=', input.referenceType)
         .where('reference_id', '=', input.referenceId)
         .executeTakeFirstOrThrow();
-      const latest = await db
-        .selectFrom('wallets')
-        .select('balance')
-        .where('id', '=', input.walletId)
-        .executeTakeFirstOrThrow();
       return {
         entry: winner,
-        balance: latest.balance,
+        balance: winner.balance_after,
         currency: wallet.currency,
         idempotent: true,
       };

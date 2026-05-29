@@ -10,20 +10,20 @@ const idParam = {
   properties: { id: { type: 'string', minLength: 1 } },
 } as const;
 
+// amount and currency are required on both topup and deduct. The currency on
+// the request acts as a "I think this wallet is in X" assertion — if it
+// disagrees with the wallet, we return 422 instead of silently mis-charging.
 const mutationBody = {
   type: 'object',
-  required: ['referenceType', 'referenceId'],
+  required: ['amount', 'currency', 'referenceType', 'referenceId'],
   properties: {
     amount: { type: 'integer', minimum: 1 },
+    currency: { type: 'string', enum: CURRENCY_VALUES },
     referenceType: { type: 'string', minLength: 1, maxLength: 32 },
     referenceId: { type: 'string', minLength: 1, maxLength: 128 },
-    currency: { type: 'string', enum: CURRENCY_VALUES },
   },
   additionalProperties: false,
 } as const;
-
-const deductBody = { ...mutationBody, required: ['referenceType', 'referenceId'] };
-const topupBody = { ...mutationBody, required: ['amount', 'referenceType', 'referenceId'] };
 
 function entryDto(e: WalletLedgerEntryRow): Record<string, unknown> {
   return {
@@ -69,19 +69,23 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
     },
   );
 
-  app.post<{
-    Params: { id: string };
-    Body: { amount: number; referenceType: string; referenceId: string; currency?: Currency };
-  }>(
+  type MutationBody = {
+    amount: number;
+    currency: Currency;
+    referenceType: string;
+    referenceId: string;
+  };
+
+  app.post<{ Params: { id: string }; Body: MutationBody }>(
     '/wallets/:id/topup',
-    { schema: { params: idParam, body: topupBody } },
+    { schema: { params: idParam, body: mutationBody } },
     async (req, reply) => {
       const result = await walletService.topup({
         walletId: req.params.id,
         amount: req.body.amount,
+        currency: req.body.currency,
         referenceType: req.body.referenceType,
         referenceId: req.body.referenceId,
-        currency: req.body.currency,
       });
       return reply.code(result.idempotent ? 200 : 201).send({
         entry: entryDto(result.entry),
@@ -92,22 +96,16 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
     },
   );
 
-  app.post<{
-    Params: { id: string };
-    Body: { amount?: number; referenceType: string; referenceId: string; currency?: Currency };
-  }>(
+  app.post<{ Params: { id: string }; Body: MutationBody }>(
     '/wallets/:id/deduct',
-    { schema: { params: idParam, body: deductBody } },
+    { schema: { params: idParam, body: mutationBody } },
     async (req, reply) => {
-      // Spec fixes deduct at ₹100 for the order flow. Default keeps that case
-      // ergonomic; clients with other amounts pass them explicitly.
-      const amount = req.body.amount ?? 10000;
       const result = await walletService.deduct({
         walletId: req.params.id,
-        amount,
+        amount: req.body.amount,
+        currency: req.body.currency,
         referenceType: req.body.referenceType,
         referenceId: req.body.referenceId,
-        currency: req.body.currency,
       });
       return reply.code(result.idempotent ? 200 : 201).send({
         entry: entryDto(result.entry),

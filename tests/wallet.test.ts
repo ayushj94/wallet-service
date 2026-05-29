@@ -13,23 +13,29 @@ async function createWallet(currency = 'INR'): Promise<string> {
   return res.json().id as string;
 }
 
-async function topup(id: string, amount: number, refId = randomUUID()): Promise<ReturnType<typeof app.inject>> {
+async function topup(
+  id: string,
+  amount: number,
+  refId = randomUUID(),
+  currency = 'INR',
+): Promise<ReturnType<typeof app.inject>> {
   return app.inject({
     method: 'POST',
     url: `/wallets/${id}/topup`,
-    payload: { amount, referenceType: 'PAYMENT_SYSTEM', referenceId: refId },
+    payload: { amount, currency, referenceType: 'PAYMENT_SYSTEM', referenceId: refId },
   });
 }
 
 async function deduct(
   id: string,
-  amount = 10000,
+  amount: number,
   refId = randomUUID(),
+  currency = 'INR',
 ): Promise<ReturnType<typeof app.inject>> {
   return app.inject({
     method: 'POST',
     url: `/wallets/${id}/deduct`,
-    payload: { amount, referenceType: 'ORDER_SYSTEM', referenceId: refId },
+    payload: { amount, currency, referenceType: 'ORDER_SYSTEM', referenceId: refId },
   });
 }
 
@@ -93,6 +99,9 @@ describe('idempotency', () => {
     expect(second.statusCode).toBe(200);
     expect(second.json().idempotent).toBe(true);
     expect(second.json().entry.id).toBe(first.json().entry.id);
+    // Replay returns the balance as it was right after the original op,
+    // not the current balance — true idempotent semantics.
+    expect(second.json().balance).toBe(first.json().balance);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
     expect(bal.json().balance).toBe(40000); // debited once, not twice
@@ -120,12 +129,12 @@ describe('idempotency', () => {
     const r1 = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/deduct`,
-      payload: { amount: 10000, referenceType: 'ORDER_SYSTEM', referenceId: sameId },
+      payload: { amount: 10000, currency: 'INR', referenceType: 'ORDER_SYSTEM', referenceId: sameId },
     });
     const r2 = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/deduct`,
-      payload: { amount: 10000, referenceType: 'LOAN_SYSTEM', referenceId: sameId },
+      payload: { amount: 10000, currency: 'INR', referenceType: 'LOAN_SYSTEM', referenceId: sameId },
     });
 
     expect(r1.statusCode).toBe(201);
@@ -204,37 +213,48 @@ describe('ledger invariant', () => {
     const last = entries.sort((a, b) => b.created_at.getTime() - a.created_at.getTime())[0];
     if (last) expect(last.balance_after).toBe(wallet.balance);
   });
+
+  it('updated_at advances when balance changes', async () => {
+    const id = await createWallet();
+    const before = await db
+      .selectFrom('wallets')
+      .select('updated_at')
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+
+    // Small wait so the timestamp can advance, then mutate
+    await new Promise((r) => setTimeout(r, 5));
+    await topup(id, 10000);
+
+    const after = await db
+      .selectFrom('wallets')
+      .select('updated_at')
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
+
+    expect(after.updated_at.getTime()).toBeGreaterThan(before.updated_at.getTime());
+  });
 });
 
 describe('currency', () => {
   it('rejects topup whose currency mismatches the wallet', async () => {
     const id = await createWallet('INR');
-    const res = await app.inject({
-      method: 'POST',
-      url: `/wallets/${id}/topup`,
-      payload: {
-        amount: 10000,
-        referenceType: 'PAYMENT_SYSTEM',
-        referenceId: randomUUID(),
-        currency: 'USD',
-      },
-    });
+    const res = await topup(id, 10000, randomUUID(), 'USD');
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.code).toBe('CURRENCY_MISMATCH');
+  });
+
+  it('rejects deduct whose currency mismatches the wallet', async () => {
+    const id = await createWallet('INR');
+    await topup(id, 50000);
+    const res = await deduct(id, 10000, randomUUID(), 'USD');
     expect(res.statusCode).toBe(422);
     expect(res.json().error.code).toBe('CURRENCY_MISMATCH');
   });
 
   it('accepts a topup with matching currency', async () => {
     const id = await createWallet('USD');
-    const res = await app.inject({
-      method: 'POST',
-      url: `/wallets/${id}/topup`,
-      payload: {
-        amount: 10000,
-        referenceType: 'PAYMENT_SYSTEM',
-        referenceId: randomUUID(),
-        currency: 'USD',
-      },
-    });
+    const res = await topup(id, 10000, randomUUID(), 'USD');
     expect(res.statusCode).toBe(201);
   });
 });
@@ -254,12 +274,22 @@ describe('validation and not-found', () => {
     expect(res.statusCode).toBe(400);
   });
 
-  it('rejects missing reference fields on mutation', async () => {
+  it('rejects missing required fields on mutation', async () => {
     const id = await createWallet();
     const res = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/topup`,
-      payload: { amount: 10000 },
+      payload: { amount: 10000 }, // missing currency, referenceType, referenceId
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects missing amount on deduct', async () => {
+    const id = await createWallet();
+    const res = await app.inject({
+      method: 'POST',
+      url: `/wallets/${id}/deduct`,
+      payload: { currency: 'INR', referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -294,7 +324,7 @@ describe('amount must be a positive integer', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/topup`,
-      payload: { amount, referenceType: 'PAYMENT_SYSTEM', referenceId: randomUUID() },
+      payload: { amount, currency: 'INR', referenceType: 'PAYMENT_SYSTEM', referenceId: randomUUID() },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -304,7 +334,7 @@ describe('amount must be a positive integer', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/deduct`,
-      payload: { amount, referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
+      payload: { amount, currency: 'INR', referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -323,17 +353,17 @@ describe('amount must be a positive integer', () => {
       app.inject({
         method: 'POST',
         url: `/wallets/${id}/deduct`,
-        payload: { amount: -1, referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
+        payload: { amount: -1, currency: 'INR', referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
       }),
       app.inject({
         method: 'POST',
         url: `/wallets/${id}/topup`,
-        payload: { amount: 1.5, referenceType: 'PAYMENT_SYSTEM', referenceId: randomUUID() },
+        payload: { amount: 1.5, currency: 'INR', referenceType: 'PAYMENT_SYSTEM', referenceId: randomUUID() },
       }),
       app.inject({
         method: 'POST',
         url: `/wallets/${id}/deduct`,
-        payload: { amount: 0, referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
+        payload: { amount: 0, currency: 'INR', referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
       }),
     ]);
 

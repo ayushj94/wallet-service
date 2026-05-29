@@ -38,6 +38,7 @@ async function callDeduct(
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       amount: 10000,
+      currency: 'INR',
       referenceType: 'ORDER_SYSTEM',
       referenceId: orderId,
     }),
