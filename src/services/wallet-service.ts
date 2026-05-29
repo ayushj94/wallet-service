@@ -80,9 +80,9 @@ export async function deduct(input: LedgerOperationInput): Promise<LedgerOperati
  * Records a credit or debit using Postgres' optimistic concurrency pattern.
  *
  * The flow:
- *   1. Fast path — has this (referenceType, referenceId) already been recorded
- *      against this wallet? If yes, return the prior entry. One SELECT.
- *   2. Slow path — open a transaction and:
+ *   1. Look up whether an entry already exists for this
+ *      (wallet_id, reference_type, reference_id). If yes, return it.
+ *   2. Otherwise open a transaction and:
  *      a. Conditionally update the wallet balance with RETURNING. The WHERE
  *         clause refuses the update if the resulting balance would be negative,
  *         so insufficient-balance is detected atomically with the mutation.
@@ -90,7 +90,7 @@ export async function deduct(input: LedgerOperationInput): Promise<LedgerOperati
  *         entry with the same (wallet_id, reference_type, reference_id), the
  *         ON CONFLICT DO NOTHING returns no row — we throw, the transaction
  *         rolls back (which undoes step a), and the outer catch fetches the
- *         winning entry.
+ *         entry that committed first.
  *
  * Why this works: Postgres' row-level lock on the wallet row (acquired inside
  * UPDATE) makes step 2a serial across concurrent requests. The UNIQUE
@@ -118,8 +118,8 @@ async function recordLedgerEntry(
     throw new CurrencyMismatchError(wallet.currency, input.currency);
   }
 
-  // 1. Fast path: has this instruction already been recorded?
-  const priorEntry = await db
+  // Does an entry already exist for this reference? If so, return it.
+  const entry = await db
     .selectFrom('wallet_ledger_entries')
     .selectAll()
     .where('wallet_id', '=', input.walletId)
@@ -127,18 +127,16 @@ async function recordLedgerEntry(
     .where('reference_id', '=', input.referenceId)
     .executeTakeFirst();
 
-  if (priorEntry) {
-    // Return the balance as it was right after this operation.
-    // That's what the original call returned — what an idempotent replay should match.
+  if (entry) {
     return {
-      entry: priorEntry,
-      balance: priorEntry.balance_after,
+      entry,
+      balance: entry.balance_after,
       currency: wallet.currency,
       idempotent: true,
     };
   }
 
-  // 2. Slow path: try to record it.
+  // Otherwise, record a new entry.
   try {
     return await db.transaction().execute(async (trx) => {
       const signed = entryType === 'CREDIT' ? input.amount : -input.amount;
@@ -201,7 +199,8 @@ async function recordLedgerEntry(
     });
   } catch (err) {
     if (err instanceof IdempotencyRace) {
-      const winner = await db
+      // A concurrent request committed first. Fetch the entry it wrote and return it.
+      const entry = await db
         .selectFrom('wallet_ledger_entries')
         .selectAll()
         .where('wallet_id', '=', input.walletId)
@@ -209,8 +208,8 @@ async function recordLedgerEntry(
         .where('reference_id', '=', input.referenceId)
         .executeTakeFirstOrThrow();
       return {
-        entry: winner,
-        balance: winner.balance_after,
+        entry,
+        balance: entry.balance_after,
         currency: wallet.currency,
         idempotent: true,
       };
