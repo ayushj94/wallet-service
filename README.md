@@ -4,7 +4,7 @@
 
 **A small, careful service that holds customer money — and never loses a paise of it.**
 
-<sub>Take-home submission · Node 20 · TypeScript · Fastify · Postgres 16 · Kysely · Vitest</sub>
+<sub>Node 20 · TypeScript · Fastify · Postgres 16 · Kysely · Vitest</sub>
 
 <br/>
 
@@ -461,7 +461,7 @@ The industry-standard pattern (Stripe et al.) keeps a separate `Idempotency-Key`
 | **Multiple ops per business event** | Natural — different idempotency keys, same business ID | Awkward — need sub-IDs like `order-123-charge`, `order-123-tip` |
 | **Right for** | Public API with many unknown callers | Internal service with well-known source systems |
 
-For our scope — internal-only with disciplined callers — the merged design is fine. The Round 3 talking point: "If we ever opened this externally, I'd switch to a separate idempotency_key like Stripe."
+For our scope — internal-only with disciplined callers — the merged design is fine. If we ever opened this externally, the right move would be to switch to a separate idempotency_key like Stripe.
 
 </details>
 
@@ -741,6 +741,6 @@ npm test                        # run the suite
 
 <div align="center">
 
-<sub>Built as a take-home — emphasis on engineering judgment, not line count.</sub>
+<sub>Emphasis on engineering judgment, not line count.</sub>
 
 </div>
