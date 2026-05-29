@@ -13,11 +13,17 @@ const idParam = {
 // amount and currency are required on both topup and deduct. The currency on
 // the request acts as a "I think this wallet is in X" assertion — if it
 // disagrees with the wallet, we return 422 instead of silently mis-charging.
+//
+// `maximum` on amount is Number.MAX_SAFE_INTEGER (2^53 - 1). This isn't a
+// business cap — it's the largest integer JavaScript numbers can represent
+// without precision loss. Above this, JSON.parse silently rounds, which
+// would corrupt amounts mid-flight. We reject before that can happen.
+const MAX_SAFE_AMOUNT = Number.MAX_SAFE_INTEGER; // 9_007_199_254_740_991
 const mutationBody = {
   type: 'object',
   required: ['amount', 'currency', 'referenceType', 'referenceId'],
   properties: {
-    amount: { type: 'integer', minimum: 1 },
+    amount: { type: 'integer', minimum: 1, maximum: MAX_SAFE_AMOUNT },
     currency: { type: 'string', enum: CURRENCY_VALUES },
     referenceType: { type: 'string', minLength: 1, maxLength: 32 },
     referenceId: { type: 'string', minLength: 1, maxLength: 128 },
@@ -125,20 +131,32 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
     },
   );
 
-  app.get<{ Params: { id: string }; Querystring: { limit?: number } }>(
+  app.get<{ Params: { id: string }; Querystring: { limit?: number; cursor?: string } }>(
     '/wallets/:id/transactions',
     {
       schema: {
         params: idParam,
         querystring: {
           type: 'object',
-          properties: { limit: { type: 'integer', minimum: 1, maximum: 500 } },
+          properties: {
+            limit: { type: 'integer', minimum: 1, maximum: 500 },
+            cursor: { type: 'string', minLength: 1, maxLength: 64 },
+          },
+          additionalProperties: false,
         },
       },
     },
     async (req) => {
-      const rows = await walletService.listLedgerEntries(req.params.id, req.query.limit ?? 100);
-      return { walletId: req.params.id, entries: rows.map(entryDto) };
+      const result = await walletService.listLedgerEntries(req.params.id, {
+        limit: req.query.limit ?? 100,
+        cursor: req.query.cursor,
+      });
+      return {
+        walletId: req.params.id,
+        entries: result.entries.map(entryDto),
+        nextCursor: result.nextCursor,
+        hasMore: result.hasMore,
+      };
     },
   );
 }

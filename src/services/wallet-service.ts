@@ -49,21 +49,62 @@ export async function getBalance(
   return { walletId: row.id, balance: row.balance, currency: row.currency };
 }
 
+export interface ListLedgerEntriesOptions {
+  limit: number;
+  cursor?: string;
+}
+
+export interface ListLedgerEntriesResult {
+  entries: WalletLedgerEntryRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
+/**
+ * Cursor pagination on (created_at DESC, id DESC).
+ *
+ * Cursor is the ID of the last entry from the previous page. We look up that
+ * entry's created_at, then fetch entries strictly older than it. Stable under
+ * concurrent writes because the cursor is anchored to a specific row, not an
+ * offset that can shift.
+ */
 export async function listLedgerEntries(
   walletId: string,
-  limit = 100,
-): Promise<WalletLedgerEntryRow[]> {
+  options: ListLedgerEntriesOptions,
+): Promise<ListLedgerEntriesResult> {
   const wallet = await db.selectFrom('wallets').select('id').where('id', '=', walletId).executeTakeFirst();
   if (!wallet) throw new NotFoundError(`Wallet ${walletId} not found`);
 
-  return db
+  let query = db
     .selectFrom('wallet_ledger_entries')
     .selectAll()
     .where('wallet_id', '=', walletId)
     .orderBy('created_at', 'desc')
     .orderBy('id', 'desc')
-    .limit(limit)
-    .execute();
+    .limit(options.limit + 1); // fetch one extra to know if there's more
+
+  if (options.cursor) {
+    const anchor = await db
+      .selectFrom('wallet_ledger_entries')
+      .select(['created_at', 'id'])
+      .where('id', '=', options.cursor)
+      .where('wallet_id', '=', walletId)
+      .executeTakeFirst();
+    if (!anchor) throw new ValidationError(`Invalid cursor: ${options.cursor}`);
+    query = query.where(({ eb, or, and }) =>
+      or([
+        eb('created_at', '<', anchor.created_at),
+        and([eb('created_at', '=', anchor.created_at), eb('id', '<', anchor.id)]),
+      ]),
+    );
+  }
+
+  const rows = await query.execute();
+  const hasMore = rows.length > options.limit;
+  const entries = hasMore ? rows.slice(0, options.limit) : rows;
+  const nextCursor = hasMore ? entries[entries.length - 1]!.id : null;
+
+  return { entries, nextCursor, hasMore };
 }
 
 export async function topup(input: LedgerOperationInput): Promise<LedgerOperationResult> {

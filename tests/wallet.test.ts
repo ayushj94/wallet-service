@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { randomUUID } from 'node:crypto';
+import { sql } from 'kysely';
 import { app } from './setup';
 import { db } from '../src/db';
 import type { Currency } from '../src/db/schema';
@@ -324,6 +325,129 @@ describe('validation and not-found', () => {
   it('returns 404 for unknown wallet on balance', async () => {
     const res = await app.inject({ method: 'GET', url: `/wallets/${randomUUID()}/balance` });
     expect(res.statusCode).toBe(404);
+  });
+});
+
+describe('pagination on /transactions', () => {
+  it('paginates through entries in order, with stable cursors', async () => {
+    const id = await createWallet('INR');
+    // 12 credits — enough to need multiple pages at limit=5.
+    for (let i = 0; i < 12; i++) {
+      const r = await topup(id, 1000 + i, 'INR', `topup-${i}`);
+      expect(r.statusCode).toBe(201);
+    }
+
+    const collected: Array<{ id: string; amount: number }> = [];
+    let cursor: string | undefined;
+    let pages = 0;
+    do {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/wallets/${id}/transactions?limit=5${cursor ? `&cursor=${cursor}` : ''}`,
+      });
+      expect(res.statusCode).toBe(200);
+      const body = res.json() as {
+        entries: Array<{ id: string; amount: number }>;
+        nextCursor: string | null;
+        hasMore: boolean;
+      };
+      collected.push(...body.entries);
+      cursor = body.nextCursor ?? undefined;
+      pages++;
+      if (pages > 10) throw new Error('pagination did not terminate');
+    } while (cursor);
+
+    expect(collected).toHaveLength(12);
+    // No duplicates across pages.
+    expect(new Set(collected.map((e) => e.id)).size).toBe(12);
+    // Order is newest-first (descending amounts since we wrote them in increasing order).
+    const amounts = collected.map((e) => e.amount);
+    expect([...amounts].sort((a, b) => b - a)).toEqual(amounts);
+  });
+
+  it('rejects an invalid cursor', async () => {
+    const id = await createWallet('INR');
+    await topup(id, 5000, 'INR');
+    const res = await app.inject({
+      method: 'GET',
+      url: `/wallets/${id}/transactions?cursor=${randomUUID()}`,
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('returns hasMore=false and nextCursor=null when the page is the last', async () => {
+    const id = await createWallet('INR');
+    await topup(id, 1000, 'INR');
+    const res = await app.inject({ method: 'GET', url: `/wallets/${id}/transactions?limit=5` });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().hasMore).toBe(false);
+    expect(res.json().nextCursor).toBeNull();
+  });
+});
+
+describe('health endpoints', () => {
+  it('liveness returns 200 ok', async () => {
+    const res = await app.inject({ method: 'GET', url: '/health/live' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('ok');
+  });
+
+  it('readiness checks the database', async () => {
+    const res = await app.inject({ method: 'GET', url: '/health/ready' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().db).toBe('ok');
+  });
+
+  it('legacy /health alias still works', async () => {
+    const res = await app.inject({ method: 'GET', url: '/health' });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().status).toBe('ok');
+  });
+});
+
+describe('amount overflow safety', () => {
+  it('accepts the maximum safe integer amount', async () => {
+    const id = await createWallet('INR');
+    const res = await topup(id, Number.MAX_SAFE_INTEGER, 'INR');
+    expect(res.statusCode).toBe(201);
+    expect(res.json().balance).toBe(Number.MAX_SAFE_INTEGER);
+  });
+
+  it('rejects an amount above the JS safe integer range', async () => {
+    const id = await createWallet('INR');
+    // 1 above MAX_SAFE_INTEGER — Ajv catches this via the maximum constraint.
+    const res = await app.inject({
+      method: 'POST',
+      url: `/wallets/${id}/topup`,
+      payload: {
+        amount: Number.MAX_SAFE_INTEGER + 1,
+        currency: 'INR',
+        referenceType: 'PAYMENT_SYSTEM',
+        referenceId: randomUUID(),
+      },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('returns 422 AMOUNT_OUT_OF_RANGE when balance would exceed BIGINT', async () => {
+    const id = await createWallet('INR');
+    // Seed the wallet near BIGINT max (2^63 - 1 = 9223372036854775807) by writing
+    // directly to the DB. We use a BIGINT literal in raw SQL because the value
+    // exceeds Number.MAX_SAFE_INTEGER and can't be passed as a JS number.
+    await sql`
+      UPDATE wallets SET balance = 9223372036854775000 WHERE id = ${id}
+    `.execute(db);
+
+    // A topup of 1000 would push us past 2^63 - 1. Postgres raises SQLSTATE 22003;
+    // our error handler maps it to 422 AMOUNT_OUT_OF_RANGE.
+    const res = await topup(id, 1000, 'INR');
+    expect(res.statusCode).toBe(422);
+    expect(res.json().error.code).toBe('AMOUNT_OUT_OF_RANGE');
+
+    // Balance must be unchanged — the failed UPDATE rolled back.
+    const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
+    expect(bal.json().balance).toBeLessThan(9223372036854776000);
   });
 });
 

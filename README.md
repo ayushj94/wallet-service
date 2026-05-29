@@ -14,7 +14,7 @@
 ![TypeScript](https://img.shields.io/badge/typescript-5.5-3178C6?logo=typescript&logoColor=white)
 ![Postgres](https://img.shields.io/badge/postgres-16-336791?logo=postgresql&logoColor=white)
 ![Fastify](https://img.shields.io/badge/fastify-4-000000?logo=fastify&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-37_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-48_passing-brightgreen)
 
 </sub>
 
@@ -178,7 +178,9 @@ npx tsx order-service-stub/place-order.ts <wallet-id> --retry
 | `POST` | `/wallets/:id/topup` | Add money (idempotent) |
 | `POST` | `/wallets/:id/deduct` | Take money for an order (idempotent) |
 | `GET`  | `/wallets/:id/balance` | Current balance + currency |
-| `GET`  | `/wallets/:id/transactions` | The ledger — every credit and debit |
+| `GET`  | `/wallets/:id/transactions` | The ledger — every credit and debit (cursor-paginated) |
+| `GET`  | `/health/live` | Liveness — is the process up? |
+| `GET`  | `/health/ready` | Readiness — is the DB reachable? |
 
 ### 💱 Amount conventions
 
@@ -186,6 +188,32 @@ npx tsx order-service-stub/place-order.ts <wallet-id> --retry
 > Paise for INR, cents for USD/EUR/GBP/CAD. `amount: 50000` means **₹500 on an INR wallet**, **$500 on a USD wallet**, and so on.
 
 This matches the convention every major fintech API uses (Stripe, Razorpay, Adyen). See [Currency, in depth](#-currency-in-depth) for the rationale.
+
+### 📄 Pagination on `/transactions`
+
+The ledger is cursor-paginated, not offset-paginated — append-only logs are exactly the case where offsets get unreliable (new entries shift the window) and slow (`OFFSET 100000` scans).
+
+```
+GET /wallets/:id/transactions?limit=100&cursor=<entry-id>
+```
+
+| Field | Description |
+| --- | --- |
+| `limit` | Page size, 1–500. Default 100. |
+| `cursor` | The `id` of the last entry from the previous page. Omit for the first page. |
+
+The response shape:
+
+```json
+{
+  "walletId": "...",
+  "entries": [ ... ],
+  "nextCursor": "uuid" | null,
+  "hasMore": true | false
+}
+```
+
+Iterate by feeding `nextCursor` back as `cursor` on the next call until `hasMore: false`. Cursors are stable under concurrent writes — they anchor to a specific row, not a position.
 
 ### 🔁 Idempotency
 
@@ -207,6 +235,7 @@ A retry with the same `(referenceType, referenceId)` on the same wallet returns 
 | `404` | Wallet doesn't exist |
 | `422` | Insufficient balance, or `CURRENCY_MISMATCH` |
 | `409` | Idempotency conflict (backstop only — the service path catches this internally) |
+| `503` | Readiness probe failed — DB unreachable |
 
 </details>
 
@@ -612,7 +641,13 @@ makes the simple case provably safe.
 
 Every mutation request goes through Fastify's JSON-schema validation **before the route handler runs**. Anything malformed gets `400` and never touches the database.
 
-> 🔒 We explicitly **disabled Ajv's type coercion** (`coerceTypes: false`). For a financial API, accepting `"100"` and silently converting it to `100` is a footgun — a bug we should surface, not paper over.
+> 🔒 The request **body** uses a strict Ajv (`coerceTypes: false`). Accepting `"100"` for `amount` and silently converting to `100` is a footgun for financial APIs. **Query strings and route params** use a lenient Ajv (the standard `coerceTypes: 'array'`) because HTTP query strings are always strings on the wire — `?limit=5` has to be coerced to a number or the schema can never accept it.
+
+### 💯 Amount range — the technical limit
+
+`amount` is capped at `Number.MAX_SAFE_INTEGER` (2⁵³ − 1 ≈ 9 quadrillion) in the JSON schema. This isn't a business rule — it's the largest integer JavaScript can represent without precision loss. Above this, `JSON.parse` silently rounds, which would corrupt amounts mid-flight. We reject before that can happen.
+
+For the very-long-tail case where a wallet's `balance + amount` would exceed Postgres' `BIGINT` (2⁶³ − 1), Postgres raises SQLSTATE `22003`. The error handler catches it and returns `422 AMOUNT_OUT_OF_RANGE`. The transaction rolls back, so the wallet balance is unaffected.
 
 ### What gets rejected, and why
 
@@ -658,7 +693,7 @@ Every mutation request goes through Fastify's JSON-schema validation **before th
 The test suite runs against a **real Postgres instance**, not a mock — because the questions this service has to answer (does the row lock work? does the unique constraint catch races?) are precisely what a mock would lie about.
 
 <details open>
-<summary><b>📋 37 tests across 9 categories</b></summary>
+<summary><b>📋 48 tests across 12 categories</b></summary>
 
 | Category | What it asserts |
 | --- | --- |
@@ -675,6 +710,10 @@ The test suite runs against a **real Postgres instance**, not a mock — because
 | 🛂 Strict input validation | 16 cases × 2 endpoints — negatives, zeros, floats, strings, null all rejected with 400 |
 | 🚧 DB untouched on rejection | Bad requests never insert ledger rows |
 | ❓ Not found | Unknown wallet → 404 on all paths |
+| 📄 Pagination | Iterates through 12 entries at limit=5 — order stable, no duplicates, terminates |
+| 📄 Pagination cursor invalid | Invalid cursor → 400 |
+| 🩺 Health endpoints | `/health/live`, `/health/ready` (with DB check), `/health` legacy alias |
+| 💯 Amount range | Accepts `MAX_SAFE_INTEGER`; rejects above; cumulative overflow → 422 |
 
 </details>
 
