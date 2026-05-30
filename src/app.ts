@@ -73,12 +73,9 @@ export async function buildApp(): Promise<FastifyInstance> {
 
   // Liveness: is the process up? Always OK if we can answer.
   // Readiness: are we ready to serve traffic? Checks the database.
-  // /health is kept as an alias for /health/live for backwards compatibility.
-  const live = async (): Promise<{ status: string }> => ({ status: 'ok' });
-  const ready = async (
-    _req: unknown,
-    reply: { code: (n: number) => unknown },
-  ): Promise<{ status: string; db: string }> => {
+  // This is the standard Kubernetes health-probe split (live + ready).
+  app.get('/health/live', async (): Promise<{ status: string }> => ({ status: 'ok' }));
+  app.get('/health/ready', async (_req, reply): Promise<{ status: string; db: string }> => {
     try {
       await sql`SELECT 1`.execute(db);
       return { status: 'ok', db: 'ok' };
@@ -86,10 +83,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       reply.code(503);
       return { status: 'unavailable', db: 'unreachable' };
     }
-  };
-  app.get('/health', live);
-  app.get('/health/live', live);
-  app.get('/health/ready', ready);
+  });
 
   // OpenAPI 3.1 spec is generated from every route's JSON schemas.
   // Interactive UI served at /docs.

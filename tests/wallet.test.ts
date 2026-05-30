@@ -433,12 +433,6 @@ describe('health endpoints', () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().db).toBe('ok');
   });
-
-  it('legacy /health alias still works', async () => {
-    const res = await app.inject({ method: 'GET', url: '/health' });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().status).toBe('ok');
-  });
 });
 
 describe('OpenAPI docs', () => {
