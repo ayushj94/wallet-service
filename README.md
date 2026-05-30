@@ -677,7 +677,7 @@ MySQL would work too, but every operation would need an extra round-trip. Postgr
 
 Tests run against a real Postgres instance, not a mock, because the questions this service has to answer (does the row lock work? does the unique constraint catch races?) are precisely what a mock would lie about.
 
-> 📊 **50 tests across 13 categories.** All green in CI on every push.
+> 📊 **51 tests across 13 categories.** All green in CI on every push.
 
 | Category | What it asserts |
 | :--- | :--- |
@@ -740,7 +740,7 @@ npx tsx order-service-stub/place-order.ts <wallet-id> --retry
 │   └── errors.ts                  # typed errors to status codes
 ├── tests/
 │   ├── setup.ts                   # shared Fastify + DB lifecycle
-│   └── wallet.test.ts             # 50 tests across 13 categories
+│   └── wallet.test.ts             # 51 tests across 13 categories
 └── .github/workflows/ci.yml       # GitHub Actions: typecheck, lint, format, test
 ```
 
