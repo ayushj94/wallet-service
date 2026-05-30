@@ -120,7 +120,14 @@ const balanceResponseSchema = {
 // the wallet's currency at the root. No nested `entry` object, no separate
 // `balance` (balanceAfter is the same value), no `idempotent` flag
 // (status code 200 vs 201 already conveys whether this was a replay).
-const mutationResponseSchema = {
+// Mutation responses are split per endpoint because the tight constraints differ:
+//   - topup is always a CREDIT, and balanceAfter is always >= 1 (a positive
+//     amount added to a non-negative balance can never land at 0).
+//   - deduct is always a DEBIT, and balanceAfter can reach exactly 0 (an
+//     exact-balance debit).
+// The general ledgerEntrySchema above stays looser (entryType in {CREDIT, DEBIT},
+// balanceAfter >= 0) because the GET /transactions list contains both kinds.
+const topupResponseSchema = {
   type: 'object',
   required: [
     'walletLedgerEntryId',
@@ -136,9 +143,35 @@ const mutationResponseSchema = {
   properties: {
     walletLedgerEntryId: { type: 'string', format: 'uuid' },
     walletId: { type: 'string', format: 'uuid' },
-    entryType: { type: 'string', enum: ['CREDIT', 'DEBIT'] },
-    amount: { type: 'integer', minimum: 1 }, // CHECK (amount > 0)
-    balanceAfter: { type: 'integer', minimum: 0 }, // CHECK (balance_after >= 0)
+    entryType: { type: 'string', enum: ['CREDIT'] },
+    amount: { type: 'integer', minimum: 1 },
+    balanceAfter: { type: 'integer', minimum: 1 }, // credit on a non-negative balance is always >= 1
+    referenceType: { type: 'string' },
+    referenceId: { type: 'string' },
+    walletLedgerEntryCreatedAt: { type: 'string', format: 'date-time' },
+    currency: { type: 'string', enum: CURRENCY_VALUES },
+  },
+} as const;
+
+const deductResponseSchema = {
+  type: 'object',
+  required: [
+    'walletLedgerEntryId',
+    'walletId',
+    'entryType',
+    'amount',
+    'balanceAfter',
+    'referenceType',
+    'referenceId',
+    'walletLedgerEntryCreatedAt',
+    'currency',
+  ],
+  properties: {
+    walletLedgerEntryId: { type: 'string', format: 'uuid' },
+    walletId: { type: 'string', format: 'uuid' },
+    entryType: { type: 'string', enum: ['DEBIT'] },
+    amount: { type: 'integer', minimum: 1 },
+    balanceAfter: { type: 'integer', minimum: 0 }, // an exact-balance debit can leave 0
     referenceType: { type: 'string' },
     referenceId: { type: 'string' },
     walletLedgerEntryCreatedAt: { type: 'string', format: 'date-time' },
@@ -234,8 +267,8 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
         params: idParam,
         body: mutationBody,
         response: {
-          200: mutationResponseSchema,
-          201: mutationResponseSchema,
+          200: topupResponseSchema,
+          201: topupResponseSchema,
           400: errorResponseSchema,
           404: errorResponseSchema,
           422: errorResponseSchema,
@@ -265,8 +298,8 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
         params: idParam,
         body: mutationBody,
         response: {
-          200: mutationResponseSchema,
-          201: mutationResponseSchema,
+          200: deductResponseSchema,
+          201: deductResponseSchema,
           400: errorResponseSchema,
           404: errorResponseSchema,
           422: errorResponseSchema,

@@ -210,9 +210,9 @@ curl -X POST http://localhost:8080/wallets \
   "properties": {
     "walletLedgerEntryId":        { "type": "string",  "format": "uuid" },
     "walletId":                   { "type": "string",  "format": "uuid" },
-    "entryType":                  { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
+    "entryType":                  { "type": "string",  "enum": ["CREDIT"] },
     "amount":                     { "type": "integer", "minimum": 1 },
-    "balanceAfter":               { "type": "integer", "minimum": 0 },
+    "balanceAfter":               { "type": "integer", "minimum": 1 },
     "referenceType":              { "type": "string" },
     "referenceId":                { "type": "string" },
     "walletLedgerEntryCreatedAt": { "type": "string",  "format": "date-time" },
@@ -220,6 +220,8 @@ curl -X POST http://localhost:8080/wallets \
   }
 }
 ```
+
+`balanceAfter` is tight at `minimum: 1` because a credit applied to a non-negative balance can never land at zero.
 
 </details>
 
@@ -306,7 +308,7 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/topup \
   "properties": {
     "walletLedgerEntryId":        { "type": "string",  "format": "uuid" },
     "walletId":                   { "type": "string",  "format": "uuid" },
-    "entryType":                  { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
+    "entryType":                  { "type": "string",  "enum": ["DEBIT"] },
     "amount":                     { "type": "integer", "minimum": 1 },
     "balanceAfter":               { "type": "integer", "minimum": 0 },
     "referenceType":              { "type": "string" },
@@ -316,6 +318,8 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/topup \
   }
 }
 ```
+
+`balanceAfter` allows `0` because an exact-balance debit can leave the wallet at zero.
 
 </details>
 
