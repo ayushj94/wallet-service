@@ -74,18 +74,18 @@ npm run dev
 
 ## 🩺 3. Check Health
 
-Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness`):
+Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness`). Click to open them in your browser while the service is running locally:
 
 | URL | What it tells you |
 | :--- | :--- |
-| `GET /health/live` | Process is alive. Always `200 ok` if the service can answer at all. |
-| `GET /health/ready` | DB is reachable. Returns `200` if a `SELECT 1` succeeds; `503` if not. |
-
-> 📚 Also useful: `GET /docs` (interactive OpenAPI try-it-out UI), `GET /docs/json` (raw OpenAPI spec).
+| [`GET http://localhost:8080/health/live`](http://localhost:8080/health/live) | Process is alive. Always `200 ok` if the service can answer at all. |
+| [`GET http://localhost:8080/health/ready`](http://localhost:8080/health/ready) | DB is reachable. Returns `200` if a `SELECT 1` succeeds; `503` if not. |
 
 ---
 
 ## 🚀 4. API Contracts
+
+> 📚 Also useful: [`GET /docs`](http://localhost:8080/docs) (interactive OpenAPI try-it-out UI), [`GET /docs/json`](http://localhost:8080/docs/json) (raw OpenAPI spec).
 
 Five endpoints. Click any to see the contract and a curl example.
 
