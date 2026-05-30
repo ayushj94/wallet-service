@@ -27,7 +27,7 @@ async function topup(
   return app.inject({
     method: 'POST',
     url: `/wallets/${id}/topup`,
-    payload: { amount, currency, referenceType: 'PAYMENT_SYSTEM', referenceId: refId },
+    payload: { amount, currency, referenceType: 'PAYMENT_GATEWAY_SYSTEM', referenceId: refId },
   });
 }
 
@@ -142,6 +142,8 @@ describe('idempotency', () => {
     const id = await createWallet('INR');
     await topup(id, 100000, 'INR');
 
+    // Same reference_id but two different reference_types: one debit (ORDER_SYSTEM)
+    // and one credit (PAYMENT_GATEWAY_SYSTEM). Both must succeed as distinct entries.
     const sameId = randomUUID();
     const r1 = await app.inject({
       method: 'POST',
@@ -155,11 +157,11 @@ describe('idempotency', () => {
     });
     const r2 = await app.inject({
       method: 'POST',
-      url: `/wallets/${id}/deduct`,
+      url: `/wallets/${id}/topup`,
       payload: {
-        amount: 10000,
+        amount: 5000,
         currency: 'INR',
-        referenceType: 'LOAN_SYSTEM',
+        referenceType: 'PAYMENT_GATEWAY_SYSTEM',
         referenceId: sameId,
       },
     });
@@ -169,7 +171,7 @@ describe('idempotency', () => {
     expect(r1.json().entry.id).not.toBe(r2.json().entry.id);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
-    expect(bal.json().balance).toBe(80000); // both debits applied
+    expect(bal.json().balance).toBe(95000); // 100000 + 5000 - 10000
   });
 });
 
@@ -308,7 +310,11 @@ describe('validation and not-found', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/topup`,
-      payload: { amount: 10000, referenceType: 'PAYMENT_SYSTEM', referenceId: randomUUID() },
+      payload: {
+        amount: 10000,
+        referenceType: 'PAYMENT_GATEWAY_SYSTEM',
+        referenceId: randomUUID(),
+      },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -328,6 +334,21 @@ describe('validation and not-found', () => {
       method: 'POST',
       url: '/wallets',
       payload: { customerId: 'acme-corp', currency: 'USD' },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects an unknown referenceType', async () => {
+    const id = await createWallet('INR');
+    const res = await app.inject({
+      method: 'POST',
+      url: `/wallets/${id}/deduct`,
+      payload: {
+        amount: 10000,
+        currency: 'INR',
+        referenceType: 'MARS_BANK_SYSTEM',
+        referenceId: randomUUID(),
+      },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -494,7 +515,7 @@ describe('amount overflow safety', () => {
       payload: {
         amount: Number.MAX_SAFE_INTEGER + 1,
         currency: 'INR',
-        referenceType: 'PAYMENT_SYSTEM',
+        referenceType: 'PAYMENT_GATEWAY_SYSTEM',
         referenceId: randomUUID(),
       },
     });
@@ -544,7 +565,7 @@ describe('amount must be a positive integer', () => {
       payload: {
         amount,
         currency: 'INR',
-        referenceType: 'PAYMENT_SYSTEM',
+        referenceType: 'PAYMENT_GATEWAY_SYSTEM',
         referenceId: randomUUID(),
       },
     });
@@ -592,7 +613,7 @@ describe('amount must be a positive integer', () => {
         payload: {
           amount: 1.5,
           currency: 'INR',
-          referenceType: 'PAYMENT_SYSTEM',
+          referenceType: 'PAYMENT_GATEWAY_SYSTEM',
           referenceId: randomUUID(),
         },
       }),

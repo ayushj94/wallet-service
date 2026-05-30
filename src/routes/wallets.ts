@@ -4,6 +4,14 @@ import type { Currency, WalletLedgerEntryRow } from '../db/schema';
 
 const CURRENCY_VALUES = ['USD', 'EUR', 'GBP', 'CAD', 'INR'] as const;
 
+// Whitelisted upstream systems that may write to the wallet.
+// Adding a new caller is a deliberate schema change: update this list AND the
+// CHECK constraint in migrations/001_init.sql so the DB rejects unknown values too.
+const REFERENCE_TYPES = [
+  'ORDER_SYSTEM', //           debits when an order is placed (Order Service)
+  'PAYMENT_GATEWAY_SYSTEM', // credits from customer top-ups (payment gateway)
+] as const;
+
 // ─── Request schemas ─────────────────────────────────────────────────────────
 
 const idParam = {
@@ -27,7 +35,7 @@ const mutationBody = {
   properties: {
     amount: { type: 'integer', minimum: 1, maximum: MAX_SAFE_AMOUNT },
     currency: { type: 'string', enum: CURRENCY_VALUES },
-    referenceType: { type: 'string', minLength: 1, maxLength: 32 },
+    referenceType: { type: 'string', enum: REFERENCE_TYPES },
     referenceId: { type: 'string', minLength: 1, maxLength: 128 },
   },
   additionalProperties: false,

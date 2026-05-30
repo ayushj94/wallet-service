@@ -46,7 +46,10 @@ CREATE TABLE IF NOT EXISTS wallet_ledger_entries (
 
   CONSTRAINT uniq_wallet_ref UNIQUE (wallet_id, reference_type, reference_id),
   CONSTRAINT chk_amount_positive CHECK (amount > 0),
-  CONSTRAINT chk_balance_after_non_negative CHECK (balance_after >= 0)
+  CONSTRAINT chk_balance_after_non_negative CHECK (balance_after >= 0),
+  CONSTRAINT chk_reference_type_known CHECK (reference_type IN (
+    'ORDER_SYSTEM', 'PAYMENT_GATEWAY_SYSTEM'
+  ))
 );
 
 CREATE INDEX IF NOT EXISTS idx_wallet_ledger_wallet_created
