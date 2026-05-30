@@ -449,7 +449,7 @@ describe('pagination on /transactions', () => {
     expect([...amounts].sort((a, b) => b - a)).toEqual(amounts);
   });
 
-  it('rejects an invalid cursor', async () => {
+  it('rejects an unknown (well-formed UUID) cursor with 400', async () => {
     const id = await createWallet('INR');
     await topup(id, 5000, 'INR');
     const res = await app.inject({
@@ -458,6 +458,15 @@ describe('pagination on /transactions', () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error.code).toBe('VALIDATION_ERROR');
+  });
+
+  it('rejects a non-UUID cursor at the API edge with 400', async () => {
+    const id = await createWallet('INR');
+    const res = await app.inject({
+      method: 'GET',
+      url: `/wallets/${id}/transactions?cursor=not-a-uuid`,
+    });
+    expect(res.statusCode).toBe(400);
   });
 
   it('returns hasMore=false and nextCursor=null when the page is the last', async () => {

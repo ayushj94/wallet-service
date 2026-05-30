@@ -55,7 +55,10 @@ const transactionsQuery = {
   type: 'object',
   properties: {
     limit: { type: 'integer', minimum: 1, maximum: 500 },
-    cursor: { type: 'string', minLength: 1, maxLength: 64 },
+    // Cursor IS the walletLedgerEntryId of the last entry from the previous
+    // page, so it must be UUID-formatted. Catches obviously-bad cursors at
+    // the edge instead of letting Postgres throw an invalid-uuid syntax error.
+    cursor: { type: 'string', format: 'uuid' },
   },
   additionalProperties: false,
 } as const;
@@ -185,7 +188,9 @@ const transactionsResponseSchema = {
   properties: {
     walletId: { type: 'string', format: 'uuid' },
     entries: { type: 'array', items: ledgerEntrySchema },
-    nextCursor: { type: ['string', 'null'] },
+    // nextCursor is either the walletLedgerEntryId of the last entry on the
+    // page (UUID), or null when there are no more pages.
+    nextCursor: { type: ['string', 'null'], format: 'uuid' },
     hasMore: { type: 'boolean' },
   },
 } as const;

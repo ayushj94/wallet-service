@@ -11,7 +11,7 @@
 ![TypeScript](https://img.shields.io/badge/typescript-5.5-3178C6?logo=typescript&logoColor=white)
 ![Postgres](https://img.shields.io/badge/postgres-16-336791?logo=postgresql&logoColor=white)
 ![Fastify](https://img.shields.io/badge/fastify-4-000000?logo=fastify&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-53_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-54_passing-brightgreen)
 
 </div>
 
@@ -24,7 +24,7 @@
 > - 🏦 **Source of truth for every dollar.** Owns balances; records every movement to an append-only ledger.
 > - 🪟 **Transparent.** Clients can query current balance and the full transaction history through `GET` endpoints.
 > - 💱 **Multi-currency.** Five currencies (USD, EUR, GBP, CAD, INR), single currency per wallet today, extensible to cross-currency operations.
-> - ✅ **53 tests** covering balance, idempotency, concurrency, transactional atomicity, and overflow.
+> - ✅ **54 tests** covering balance, idempotency, concurrency, transactional atomicity, and overflow.
 
 ---
 
@@ -442,7 +442,7 @@ GET /wallets/:id/transactions?limit=<integer>&cursor=<string>
 | Name | Type | Constraints | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `limit` | integer | 1 – 500 | 100 | Page size. |
-| `cursor` | string | 1 – 64 chars | _(none)_ | The `walletLedgerEntryId` of the last entry from the previous page. Omit for the first page. |
+| `cursor` | string (UUID) | UUID format | _(none)_ | The `walletLedgerEntryId` of the last entry from the previous page. Omit for the first page. |
 
 **Responses**
 
@@ -470,7 +470,7 @@ GET /wallets/:id/transactions?limit=<integer>&cursor=<string>
         }
       }
     },
-    "nextCursor": { "type": ["string", "null"] },
+    "nextCursor": { "type": ["string", "null"], "format": "uuid" },
     "hasMore":    { "type": "boolean" }
   }
 }
@@ -692,7 +692,7 @@ MySQL would work too, but every operation would need an extra round-trip. Postgr
 
 Tests run against a real Postgres instance, not a mock, because the questions this service has to answer (does the row lock work? does the unique constraint catch races?) are precisely what a mock would lie about.
 
-> 📊 **53 tests across 13 categories.** All green in CI on every push.
+> 📊 **54 tests across 13 categories.** All green in CI on every push.
 
 | Category | What it asserts |
 | :--- | :--- |
@@ -712,7 +712,7 @@ Tests run against a real Postgres instance, not a mock, because the questions th
 
 ```bash
 docker compose up -d postgres   # start the DB
-npm test                        # run the suite (53 tests, ~1 second)
+npm test                        # run the suite (54 tests, ~1 second)
 npm run typecheck               # strict tsc
 npm run lint                    # ESLint with TypeScript + Prettier configs
 npm run format                  # prettier --write
@@ -755,7 +755,7 @@ npx tsx order-service-stub/place-order.ts <wallet-id> --retry
 │   └── errors.ts                  # typed errors to status codes
 ├── tests/
 │   ├── setup.ts                   # shared Fastify + DB lifecycle
-│   └── wallet.test.ts             # 53 tests across 13 categories
+│   └── wallet.test.ts             # 54 tests across 13 categories
 └── .github/workflows/ci.yml       # GitHub Actions: typecheck, lint, format, test
 ```
 
