@@ -12,7 +12,7 @@ async function createWallet(currency: Currency): Promise<string> {
   const res = await app.inject({
     method: 'POST',
     url: '/wallets',
-    payload: { customerId: `cust-${randomUUID()}`, currency },
+    payload: { customerId: randomUUID(), currency },
   });
   expect(res.statusCode).toBe(201);
   return res.json().id as string;
@@ -319,6 +319,15 @@ describe('validation and not-found', () => {
       method: 'POST',
       url: `/wallets/${id}/topup`,
       payload: { amount: 10000 },
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('rejects non-UUID customerId on wallet creation', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/wallets',
+      payload: { customerId: 'acme-corp', currency: 'USD' },
     });
     expect(res.statusCode).toBe(400);
   });

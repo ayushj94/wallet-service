@@ -37,7 +37,7 @@ const createWalletBody = {
   type: 'object',
   required: ['customerId', 'currency'],
   properties: {
-    customerId: { type: 'string', minLength: 1, maxLength: 64 },
+    customerId: { type: 'string', format: 'uuid' },
     currency: { type: 'string', enum: CURRENCY_VALUES },
   },
   additionalProperties: false,
@@ -87,7 +87,7 @@ const walletResponseSchema = {
   required: ['id', 'customerId', 'currency', 'balance', 'createdAt'],
   properties: {
     id: { type: 'string', format: 'uuid' },
-    customerId: { type: 'string' },
+    customerId: { type: 'string', format: 'uuid' },
     currency: { type: 'string', enum: CURRENCY_VALUES },
     balance: { type: 'integer' },
     createdAt: { type: 'string', format: 'date-time' },

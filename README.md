@@ -11,7 +11,7 @@
 ![TypeScript](https://img.shields.io/badge/typescript-5.5-3178C6?logo=typescript&logoColor=white)
 ![Postgres](https://img.shields.io/badge/postgres-16-336791?logo=postgresql&logoColor=white)
 ![Fastify](https://img.shields.io/badge/fastify-4-000000?logo=fastify&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-50_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-51_passing-brightgreen)
 
 </div>
 
@@ -24,7 +24,7 @@
 > - 🏦 **Source of truth for every dollar.** Owns balances; records every movement to an append-only ledger.
 > - 🪟 **Transparent.** Clients can query current balance and the full transaction history through `GET` endpoints.
 > - 💱 **Multi-currency.** Five currencies (USD, EUR, GBP, CAD, INR), single currency per wallet today, extensible to cross-currency operations.
-> - ✅ **50 tests** covering balance, idempotency, concurrency, transactional atomicity, and overflow.
+> - ✅ **51 tests** covering balance, idempotency, concurrency, transactional atomicity, and overflow.
 
 ---
 
@@ -111,7 +111,7 @@ Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness
   "type": "object",
   "required": ["customerId", "currency"],
   "properties": {
-    "customerId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "customerId": { "type": "string", "format": "uuid" },
     "currency":   { "type": "string", "enum": ["USD", "EUR", "GBP", "CAD", "INR"] }
   },
   "additionalProperties": false
@@ -126,7 +126,7 @@ Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness
 ```jsonc
 {
   "id": "string",            // UUID
-  "customerId": "string",
+  "customerId": "string",    // UUID (same one the caller supplied)
   "currency": "string",
   "balance": 0,              // integer, minor units of the currency
   "createdAt": "string"      // ISO 8601 timestamp
@@ -168,7 +168,7 @@ Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness
 ```bash
 curl -X POST http://localhost:8080/wallets \
   -H 'content-type: application/json' \
-  -d '{"customerId":"acme-corp","currency":"USD"}'
+  -d '{"customerId":"550e8400-e29b-41d4-a716-446655440000","currency":"USD"}'
 ```
 
 </details>
@@ -697,7 +697,7 @@ Tests run against a real Postgres instance, not a mock, because the questions th
 
 ```bash
 docker compose up -d postgres   # start the DB
-npm test                        # run the suite (50 tests, ~1 second)
+npm test                        # run the suite (51 tests, ~1 second)
 npm run typecheck               # strict tsc
 npm run lint                    # ESLint with TypeScript + Prettier configs
 npm run format                  # prettier --write
