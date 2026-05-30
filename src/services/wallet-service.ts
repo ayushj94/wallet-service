@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { sql } from 'kysely';
+import { sql, type Transaction } from 'kysely';
 import { db } from '../db';
-import type { Currency, WalletLedgerEntryRow, WalletRow } from '../db/schema';
+import type { Currency, Database, WalletLedgerEntryRow, WalletRow } from '../db/schema';
 import {
   CurrencyMismatchError,
   InsufficientBalanceError,
@@ -29,10 +29,26 @@ export interface LedgerOperationResult {
   idempotent: boolean;
 }
 
+export interface ListLedgerEntriesOptions {
+  limit: number;
+  cursor?: string;
+}
+
+export interface ListLedgerEntriesResult {
+  entries: WalletLedgerEntryRow[];
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 export async function createWallet(input: CreateWalletInput): Promise<WalletRow> {
   return db
     .insertInto('wallets')
-    .values({ id: randomUUID(), customer_id: input.customerId, currency: input.currency, balance: 0 })
+    .values({
+      id: randomUUID(),
+      customer_id: input.customerId,
+      currency: input.currency,
+      balance: 0,
+    })
     .returningAll()
     .executeTakeFirstOrThrow();
 }
@@ -49,17 +65,6 @@ export async function getBalance(
   return { walletId: row.id, balance: row.balance, currency: row.currency };
 }
 
-export interface ListLedgerEntriesOptions {
-  limit: number;
-  cursor?: string;
-}
-
-export interface ListLedgerEntriesResult {
-  entries: WalletLedgerEntryRow[];
-  nextCursor: string | null;
-  hasMore: boolean;
-}
-
 /**
  * Cursor pagination on (created_at DESC, id DESC).
  *
@@ -72,7 +77,11 @@ export async function listLedgerEntries(
   walletId: string,
   options: ListLedgerEntriesOptions,
 ): Promise<ListLedgerEntriesResult> {
-  const wallet = await db.selectFrom('wallets').select('id').where('id', '=', walletId).executeTakeFirst();
+  const wallet = await db
+    .selectFrom('wallets')
+    .select('id')
+    .where('id', '=', walletId)
+    .executeTakeFirst();
   if (!wallet) throw new NotFoundError(`Wallet ${walletId} not found`);
 
   let query = db
@@ -117,144 +126,149 @@ export async function deduct(input: LedgerOperationInput): Promise<LedgerOperati
   return recordLedgerEntry('DEBIT', input);
 }
 
-/**
- * Records a credit or debit using Postgres' optimistic concurrency pattern.
- *
- * The flow:
- *   1. Look up whether an entry already exists for this
- *      (wallet_id, reference_type, reference_id). If yes, return it.
- *   2. Otherwise open a transaction and:
- *      a. Conditionally update the wallet balance with RETURNING. The WHERE
- *         clause refuses the update if the resulting balance would be negative,
- *         so insufficient-balance is detected atomically with the mutation.
- *      b. Insert a ledger entry. If a concurrent request just committed an
- *         entry with the same (wallet_id, reference_type, reference_id), the
- *         ON CONFLICT DO NOTHING returns no row — we throw, the transaction
- *         rolls back (which undoes step a), and the outer catch fetches the
- *         entry that committed first.
- *
- * Why this works: Postgres' row-level lock on the wallet row (acquired inside
- * UPDATE) makes step 2a serial across concurrent requests. The UNIQUE
- * constraint on (wallet_id, reference_type, reference_id) makes step 2b
- * race-safe.
- *
- * Idempotency contract: we assume the source system uses the same reference_id
- * on a retry of the same logical instruction. This is the standard contract
- * for ORDER_SYSTEM, PAYMENT_SYSTEM, etc.
- */
+// ─── Internals for recordLedgerEntry ─────────────────────────────────────────
+
+type EntryType = 'CREDIT' | 'DEBIT';
+type Trx = Transaction<Database>;
+
+/** Marker error: a concurrent request committed first with the same reference. */
 class IdempotencyRace extends Error {}
 
+/**
+ * Records a credit or debit using Postgres' optimistic concurrency pattern.
+ * Orchestrates three phases:
+ *   1. Validate the wallet + currency.
+ *   2. If an entry for this reference already exists, return it (idempotent path).
+ *   3. Otherwise mutate-and-record inside a transaction. If a concurrent
+ *      request beats us to the INSERT, recover by fetching the entry that won.
+ */
 async function recordLedgerEntry(
-  entryType: 'CREDIT' | 'DEBIT',
+  entryType: EntryType,
   input: LedgerOperationInput,
 ): Promise<LedgerOperationResult> {
+  const wallet = await loadWalletForOperation(input.walletId, input.currency);
+
+  const existing = await findEntryByReference(input);
+  if (existing) {
+    return idempotentResult(existing, wallet.currency);
+  }
+
+  try {
+    return await db
+      .transaction()
+      .execute((trx) => mutateAndRecord(trx, entryType, input, wallet.currency));
+  } catch (err) {
+    if (err instanceof IdempotencyRace) {
+      // A concurrent request committed first. Fetch the entry it wrote and return it.
+      const winner = await findEntryByReference(input);
+      if (!winner) throw new Error('Idempotency race recovery: winning entry not found');
+      return idempotentResult(winner, wallet.currency);
+    }
+    throw err;
+  }
+}
+
+async function loadWalletForOperation(
+  walletId: string,
+  requestedCurrency: Currency,
+): Promise<{ currency: Currency }> {
   const wallet = await db
     .selectFrom('wallets')
     .select('currency')
-    .where('id', '=', input.walletId)
+    .where('id', '=', walletId)
     .executeTakeFirst();
-  if (!wallet) throw new NotFoundError(`Wallet ${input.walletId} not found`);
-
-  if (input.currency !== wallet.currency) {
-    throw new CurrencyMismatchError(wallet.currency, input.currency);
+  if (!wallet) throw new NotFoundError(`Wallet ${walletId} not found`);
+  if (requestedCurrency !== wallet.currency) {
+    throw new CurrencyMismatchError(wallet.currency, requestedCurrency);
   }
+  return wallet;
+}
 
-  // Does an entry already exist for this reference? If so, return it.
-  const entry = await db
+async function findEntryByReference(
+  input: Pick<LedgerOperationInput, 'walletId' | 'referenceType' | 'referenceId'>,
+): Promise<WalletLedgerEntryRow | undefined> {
+  return db
     .selectFrom('wallet_ledger_entries')
     .selectAll()
     .where('wallet_id', '=', input.walletId)
     .where('reference_type', '=', input.referenceType)
     .where('reference_id', '=', input.referenceId)
     .executeTakeFirst();
+}
 
-  if (entry) {
-    return {
-      entry,
-      balance: entry.balance_after,
-      currency: wallet.currency,
-      idempotent: true,
-    };
+function idempotentResult(entry: WalletLedgerEntryRow, currency: Currency): LedgerOperationResult {
+  return {
+    entry,
+    balance: entry.balance_after,
+    currency,
+    idempotent: true,
+  };
+}
+
+/**
+ * Inside one transaction:
+ *   - Conditional UPDATE on wallets — succeeds only if balance + signed stays
+ *     non-negative. Returns the new balance.
+ *   - INSERT into the ledger with ON CONFLICT DO NOTHING — if a concurrent
+ *     request committed an entry with the same reference, returns 0 rows.
+ *     We throw IdempotencyRace so the transaction rolls back, then the
+ *     caller fetches the winning entry.
+ *
+ * The wallet's row-level lock (acquired implicitly by the UPDATE) serializes
+ * concurrent operations on the same wallet. The UNIQUE constraint on
+ * (wallet_id, reference_type, reference_id) backs up the idempotency check.
+ */
+async function mutateAndRecord(
+  trx: Trx,
+  entryType: EntryType,
+  input: LedgerOperationInput,
+  currency: Currency,
+): Promise<LedgerOperationResult> {
+  const signed = entryType === 'CREDIT' ? input.amount : -input.amount;
+
+  const updated = await trx
+    .updateTable('wallets')
+    .set({ balance: sql<number>`balance + ${signed}`, updated_at: sql<Date>`NOW()` })
+    .where('id', '=', input.walletId)
+    .where(sql<boolean>`balance + ${signed} >= 0`)
+    .returning('balance')
+    .executeTakeFirst();
+
+  if (!updated) {
+    // Wallet exists (validated upstream), so this must be insufficient balance.
+    const fresh = await trx
+      .selectFrom('wallets')
+      .select('balance')
+      .where('id', '=', input.walletId)
+      .executeTakeFirstOrThrow();
+    throw new InsufficientBalanceError(input.walletId, fresh.balance, input.amount);
   }
 
-  // Otherwise, record a new entry.
-  try {
-    return await db.transaction().execute(async (trx) => {
-      const signed = entryType === 'CREDIT' ? input.amount : -input.amount;
+  const entryId = randomUUID();
+  const inserted = await trx
+    .insertInto('wallet_ledger_entries')
+    .values({
+      id: entryId,
+      wallet_id: input.walletId,
+      entry_type: entryType,
+      amount: input.amount,
+      balance_after: updated.balance,
+      reference_type: input.referenceType,
+      reference_id: input.referenceId,
+    })
+    .onConflict((oc) => oc.columns(['wallet_id', 'reference_type', 'reference_id']).doNothing())
+    .returning('id')
+    .executeTakeFirst();
 
-      // Conditional update — moves balance only if the new value would be non-negative.
-      // updated_at is bumped explicitly because Postgres doesn't have MySQL's
-      // ON UPDATE CURRENT_TIMESTAMP behaviour.
-      const updated = await trx
-        .updateTable('wallets')
-        .set({ balance: sql<number>`balance + ${signed}`, updated_at: sql<Date>`NOW()` })
-        .where('id', '=', input.walletId)
-        .where(sql<boolean>`balance + ${signed} >= 0`)
-        .returning('balance')
-        .executeTakeFirst();
-
-      if (!updated) {
-        // Wallet exists (checked above), so this must be insufficient balance.
-        const fresh = await trx
-          .selectFrom('wallets')
-          .select('balance')
-          .where('id', '=', input.walletId)
-          .executeTakeFirstOrThrow();
-        throw new InsufficientBalanceError(input.walletId, fresh.balance, input.amount);
-      }
-
-      const entryId = randomUUID();
-      const inserted = await trx
-        .insertInto('wallet_ledger_entries')
-        .values({
-          id: entryId,
-          wallet_id: input.walletId,
-          entry_type: entryType,
-          amount: input.amount,
-          balance_after: updated.balance,
-          reference_type: input.referenceType,
-          reference_id: input.referenceId,
-        })
-        .onConflict((oc) => oc.columns(['wallet_id', 'reference_type', 'reference_id']).doNothing())
-        .returning('id')
-        .executeTakeFirst();
-
-      if (!inserted) {
-        // A concurrent request with the same reference won the race.
-        // Throw to roll back the wallet UPDATE we just did.
-        throw new IdempotencyRace();
-      }
-
-      const entry = await trx
-        .selectFrom('wallet_ledger_entries')
-        .selectAll()
-        .where('id', '=', entryId)
-        .executeTakeFirstOrThrow();
-
-      return {
-        entry,
-        balance: updated.balance,
-        currency: wallet.currency,
-        idempotent: false,
-      };
-    });
-  } catch (err) {
-    if (err instanceof IdempotencyRace) {
-      // A concurrent request committed first. Fetch the entry it wrote and return it.
-      const entry = await db
-        .selectFrom('wallet_ledger_entries')
-        .selectAll()
-        .where('wallet_id', '=', input.walletId)
-        .where('reference_type', '=', input.referenceType)
-        .where('reference_id', '=', input.referenceId)
-        .executeTakeFirstOrThrow();
-      return {
-        entry,
-        balance: entry.balance_after,
-        currency: wallet.currency,
-        idempotent: true,
-      };
-    }
-    throw err;
+  if (!inserted) {
+    throw new IdempotencyRace();
   }
+
+  const entry = await trx
+    .selectFrom('wallet_ledger_entries')
+    .selectAll()
+    .where('id', '=', entryId)
+    .executeTakeFirstOrThrow();
+
+  return { entry, balance: updated.balance, currency, idempotent: false };
 }

@@ -11,10 +11,16 @@
     "migrate": "tsx src/db/migrate.ts",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint \"src/**/*.ts\" \"tests/**/*.ts\" \"order-service-stub/**/*.ts\"",
+    "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\" \"order-service-stub/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\" \"order-service-stub/**/*.ts\""
   },
   "dependencies": {
+    "@fastify/swagger": "^8.15.0",
+    "@fastify/swagger-ui": "^4.2.0",
     "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "fastify": "^4.28.1",
     "kysely": "^0.27.4",
     "pg": "^8.12.0",
@@ -23,6 +29,11 @@
   "devDependencies": {
     "@types/node": "^20.14.10",
     "@types/pg": "^8.11.6",
+    "@typescript-eslint/eslint-plugin": "^8.60.0",
+    "@typescript-eslint/parser": "^8.60.0",
+    "eslint": "^10.4.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.8.3",
     "tsx": "^4.16.2",
     "typescript": "^5.5.3",
     "vitest": "^2.0.3"

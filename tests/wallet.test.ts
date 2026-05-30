@@ -56,10 +56,12 @@ describe('happy path', () => {
 
     const ledger = await app.inject({ method: 'GET', url: `/wallets/${id}/transactions` });
     expect(ledger.json().entries).toHaveLength(2);
-    expect(ledger.json().entries.map((e: { entryType: string }) => e.entryType).sort()).toEqual([
-      'CREDIT',
-      'DEBIT',
-    ]);
+    expect(
+      ledger
+        .json()
+        .entries.map((e: { entryType: string }) => e.entryType)
+        .sort(),
+    ).toEqual(['CREDIT', 'DEBIT']);
   });
 
   it('happy path works on a non-INR wallet too', async () => {
@@ -144,12 +146,22 @@ describe('idempotency', () => {
     const r1 = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/deduct`,
-      payload: { amount: 10000, currency: 'INR', referenceType: 'ORDER_SYSTEM', referenceId: sameId },
+      payload: {
+        amount: 10000,
+        currency: 'INR',
+        referenceType: 'ORDER_SYSTEM',
+        referenceId: sameId,
+      },
     });
     const r2 = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/deduct`,
-      payload: { amount: 10000, currency: 'INR', referenceType: 'LOAN_SYSTEM', referenceId: sameId },
+      payload: {
+        amount: 10000,
+        currency: 'INR',
+        referenceType: 'LOAN_SYSTEM',
+        referenceId: sameId,
+      },
     });
 
     expect(r1.statusCode).toBe(201);
@@ -210,7 +222,11 @@ describe('ledger invariant', () => {
     for (let i = 0; i < 30; i++) ops.push(deduct(id, 10000, 'INR', randomUUID()));
     await Promise.all(ops);
 
-    const wallet = await db.selectFrom('wallets').selectAll().where('id', '=', id).executeTakeFirstOrThrow();
+    const wallet = await db
+      .selectFrom('wallets')
+      .selectAll()
+      .where('id', '=', id)
+      .executeTakeFirstOrThrow();
     const entries = await db
       .selectFrom('wallet_ledger_entries')
       .selectAll()
@@ -326,6 +342,25 @@ describe('validation and not-found', () => {
     const res = await app.inject({ method: 'GET', url: `/wallets/${randomUUID()}/balance` });
     expect(res.statusCode).toBe(404);
   });
+
+  it('returns 400 for a non-UUID path id (caught before DB lookup)', async () => {
+    const res = await app.inject({ method: 'GET', url: `/wallets/not-a-uuid/balance` });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it('returns 400 for a non-UUID path id on mutation', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/wallets/foo/deduct',
+      payload: {
+        amount: 10000,
+        currency: 'INR',
+        referenceType: 'ORDER_SYSTEM',
+        referenceId: randomUUID(),
+      },
+    });
+    expect(res.statusCode).toBe(400);
+  });
 });
 
 describe('pagination on /transactions', () => {
@@ -406,6 +441,21 @@ describe('health endpoints', () => {
   });
 });
 
+describe('OpenAPI docs', () => {
+  it('exposes an OpenAPI 3.1 spec at /docs/json', async () => {
+    const res = await app.inject({ method: 'GET', url: '/docs/json' });
+    expect(res.statusCode).toBe(200);
+    const spec = res.json() as { openapi: string; paths: Record<string, unknown> };
+    expect(spec.openapi).toMatch(/^3\.[01]/);
+    // Every documented route should show up.
+    expect(spec.paths).toHaveProperty('/wallets');
+    expect(spec.paths).toHaveProperty('/wallets/{id}/topup');
+    expect(spec.paths).toHaveProperty('/wallets/{id}/deduct');
+    expect(spec.paths).toHaveProperty('/wallets/{id}/balance');
+    expect(spec.paths).toHaveProperty('/wallets/{id}/transactions');
+  });
+});
+
 describe('amount overflow safety', () => {
   it('accepts the maximum safe integer amount', async () => {
     const id = await createWallet('INR');
@@ -470,7 +520,12 @@ describe('amount must be a positive integer', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/topup`,
-      payload: { amount, currency: 'INR', referenceType: 'PAYMENT_SYSTEM', referenceId: randomUUID() },
+      payload: {
+        amount,
+        currency: 'INR',
+        referenceType: 'PAYMENT_SYSTEM',
+        referenceId: randomUUID(),
+      },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -480,7 +535,12 @@ describe('amount must be a positive integer', () => {
     const res = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/deduct`,
-      payload: { amount, currency: 'INR', referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
+      payload: {
+        amount,
+        currency: 'INR',
+        referenceType: 'ORDER_SYSTEM',
+        referenceId: randomUUID(),
+      },
     });
     expect(res.statusCode).toBe(400);
   });
@@ -498,17 +558,32 @@ describe('amount must be a positive integer', () => {
       app.inject({
         method: 'POST',
         url: `/wallets/${id}/deduct`,
-        payload: { amount: -1, currency: 'INR', referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
+        payload: {
+          amount: -1,
+          currency: 'INR',
+          referenceType: 'ORDER_SYSTEM',
+          referenceId: randomUUID(),
+        },
       }),
       app.inject({
         method: 'POST',
         url: `/wallets/${id}/topup`,
-        payload: { amount: 1.5, currency: 'INR', referenceType: 'PAYMENT_SYSTEM', referenceId: randomUUID() },
+        payload: {
+          amount: 1.5,
+          currency: 'INR',
+          referenceType: 'PAYMENT_SYSTEM',
+          referenceId: randomUUID(),
+        },
       }),
       app.inject({
         method: 'POST',
         url: `/wallets/${id}/deduct`,
-        payload: { amount: 0, currency: 'INR', referenceType: 'ORDER_SYSTEM', referenceId: randomUUID() },
+        payload: {
+          amount: 0,
+          currency: 'INR',
+          referenceType: 'ORDER_SYSTEM',
+          referenceId: randomUUID(),
+        },
       }),
     ]);
 

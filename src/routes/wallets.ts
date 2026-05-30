@@ -4,10 +4,12 @@ import type { Currency, WalletLedgerEntryRow } from '../db/schema';
 
 const CURRENCY_VALUES = ['USD', 'EUR', 'GBP', 'CAD', 'INR'] as const;
 
+// ─── Request schemas ─────────────────────────────────────────────────────────
+
 const idParam = {
   type: 'object',
   required: ['id'],
-  properties: { id: { type: 'string', minLength: 1 } },
+  properties: { id: { type: 'string', format: 'uuid' } },
 } as const;
 
 // amount and currency are required on both topup and deduct. The currency on
@@ -31,6 +33,116 @@ const mutationBody = {
   additionalProperties: false,
 } as const;
 
+const createWalletBody = {
+  type: 'object',
+  required: ['customerId', 'currency'],
+  properties: {
+    customerId: { type: 'string', minLength: 1, maxLength: 64 },
+    currency: { type: 'string', enum: CURRENCY_VALUES },
+  },
+  additionalProperties: false,
+} as const;
+
+const transactionsQuery = {
+  type: 'object',
+  properties: {
+    limit: { type: 'integer', minimum: 1, maximum: 500 },
+    cursor: { type: 'string', minLength: 1, maxLength: 64 },
+  },
+  additionalProperties: false,
+} as const;
+
+// ─── Response schemas ────────────────────────────────────────────────────────
+//
+// These describe the wire shape of every successful response and the error
+// envelope. Fastify uses them both to serialise the output (via
+// fast-json-stringify) and to auto-generate OpenAPI docs at /docs.
+
+const ledgerEntrySchema = {
+  type: 'object',
+  required: [
+    'id',
+    'walletId',
+    'entryType',
+    'amount',
+    'balanceAfter',
+    'referenceType',
+    'referenceId',
+    'createdAt',
+  ],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    walletId: { type: 'string', format: 'uuid' },
+    entryType: { type: 'string', enum: ['CREDIT', 'DEBIT'] },
+    amount: { type: 'integer' },
+    balanceAfter: { type: 'integer' },
+    referenceType: { type: 'string' },
+    referenceId: { type: 'string' },
+    createdAt: { type: 'string', format: 'date-time' },
+  },
+} as const;
+
+const walletResponseSchema = {
+  type: 'object',
+  required: ['id', 'customerId', 'currency', 'balance', 'createdAt'],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    customerId: { type: 'string' },
+    currency: { type: 'string', enum: CURRENCY_VALUES },
+    balance: { type: 'integer' },
+    createdAt: { type: 'string', format: 'date-time' },
+  },
+} as const;
+
+const balanceResponseSchema = {
+  type: 'object',
+  required: ['walletId', 'balance', 'currency'],
+  properties: {
+    walletId: { type: 'string', format: 'uuid' },
+    balance: { type: 'integer' },
+    currency: { type: 'string', enum: CURRENCY_VALUES },
+  },
+} as const;
+
+const mutationResponseSchema = {
+  type: 'object',
+  required: ['entry', 'balance', 'currency', 'idempotent'],
+  properties: {
+    entry: ledgerEntrySchema,
+    balance: { type: 'integer' },
+    currency: { type: 'string', enum: CURRENCY_VALUES },
+    idempotent: { type: 'boolean' },
+  },
+} as const;
+
+const transactionsResponseSchema = {
+  type: 'object',
+  required: ['walletId', 'entries', 'nextCursor', 'hasMore'],
+  properties: {
+    walletId: { type: 'string', format: 'uuid' },
+    entries: { type: 'array', items: ledgerEntrySchema },
+    nextCursor: { type: ['string', 'null'] },
+    hasMore: { type: 'boolean' },
+  },
+} as const;
+
+const errorResponseSchema = {
+  type: 'object',
+  required: ['error'],
+  properties: {
+    error: {
+      type: 'object',
+      required: ['code', 'message'],
+      properties: {
+        code: { type: 'string' },
+        message: { type: 'string' },
+      },
+    },
+  },
+} as const;
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
 function entryDto(e: WalletLedgerEntryRow): Record<string, unknown> {
   return {
     id: e.id,
@@ -44,19 +156,19 @@ function entryDto(e: WalletLedgerEntryRow): Record<string, unknown> {
   };
 }
 
+// ─── Routes ──────────────────────────────────────────────────────────────────
+
 export async function registerWalletRoutes(app: FastifyInstance): Promise<void> {
   app.post<{ Body: { customerId: string; currency: Currency } }>(
     '/wallets',
     {
       schema: {
-        body: {
-          type: 'object',
-          required: ['customerId', 'currency'],
-          properties: {
-            customerId: { type: 'string', minLength: 1, maxLength: 64 },
-            currency: { type: 'string', enum: CURRENCY_VALUES },
-          },
-          additionalProperties: false,
+        description: 'Create a new wallet for a customer in a specific currency.',
+        tags: ['wallets'],
+        body: createWalletBody,
+        response: {
+          201: walletResponseSchema,
+          400: errorResponseSchema,
         },
       },
     },
@@ -84,7 +196,21 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
 
   app.post<{ Params: { id: string }; Body: MutationBody }>(
     '/wallets/:id/topup',
-    { schema: { params: idParam, body: mutationBody } },
+    {
+      schema: {
+        description: 'Credit money to a wallet. Idempotent on (referenceType, referenceId).',
+        tags: ['wallets'],
+        params: idParam,
+        body: mutationBody,
+        response: {
+          200: mutationResponseSchema,
+          201: mutationResponseSchema,
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+          422: errorResponseSchema,
+        },
+      },
+    },
     async (req, reply) => {
       const result = await walletService.topup({
         walletId: req.params.id,
@@ -104,7 +230,21 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
 
   app.post<{ Params: { id: string }; Body: MutationBody }>(
     '/wallets/:id/deduct',
-    { schema: { params: idParam, body: mutationBody } },
+    {
+      schema: {
+        description: 'Debit money from a wallet. Idempotent on (referenceType, referenceId).',
+        tags: ['wallets'],
+        params: idParam,
+        body: mutationBody,
+        response: {
+          200: mutationResponseSchema,
+          201: mutationResponseSchema,
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+          422: errorResponseSchema,
+        },
+      },
+    },
     async (req, reply) => {
       const result = await walletService.deduct({
         walletId: req.params.id,
@@ -124,7 +264,18 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
 
   app.get<{ Params: { id: string } }>(
     '/wallets/:id/balance',
-    { schema: { params: idParam } },
+    {
+      schema: {
+        description: 'Get the current balance of a wallet.',
+        tags: ['wallets'],
+        params: idParam,
+        response: {
+          200: balanceResponseSchema,
+          400: errorResponseSchema,
+          404: errorResponseSchema,
+        },
+      },
+    },
     async (req) => {
       const result = await walletService.getBalance(req.params.id);
       return { walletId: result.walletId, balance: result.balance, currency: result.currency };
@@ -135,14 +286,14 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
     '/wallets/:id/transactions',
     {
       schema: {
+        description: 'List ledger entries for a wallet. Cursor-paginated, newest first.',
+        tags: ['wallets'],
         params: idParam,
-        querystring: {
-          type: 'object',
-          properties: {
-            limit: { type: 'integer', minimum: 1, maximum: 500 },
-            cursor: { type: 'string', minLength: 1, maxLength: 64 },
-          },
-          additionalProperties: false,
+        querystring: transactionsQuery,
+        response: {
+          200: transactionsResponseSchema,
+          400: errorResponseSchema,
+          404: errorResponseSchema,
         },
       },
     },

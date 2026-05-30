@@ -1,6 +1,6 @@
 import { buildApp } from './app';
 import { config } from './config';
-import { closeDb } from './db';
+import { db } from './db';
 
 async function main(): Promise<void> {
   const app = await buildApp();
@@ -8,7 +8,7 @@ async function main(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, 'shutting down');
     await app.close();
-    await closeDb();
+    await db.destroy();
     process.exit(0);
   };
   process.on('SIGTERM', () => void shutdown('SIGTERM'));
@@ -18,7 +18,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-  // eslint-disable-next-line no-console
   console.error(err);
   process.exit(1);
 });

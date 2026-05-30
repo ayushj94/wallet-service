@@ -1,6 +1,9 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import fastifySwagger from '@fastify/swagger';
+import fastifySwaggerUi from '@fastify/swagger-ui';
 import { sql } from 'kysely';
 import Ajv from 'ajv';
+import addFormats from 'ajv-formats';
 import { config } from './config';
 import { db } from './db';
 import { AppError } from './errors';
@@ -23,6 +26,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   const baseAjvOptions = { removeAdditional: true, useDefaults: true, allErrors: false };
   const strictAjv = new Ajv({ ...baseAjvOptions, coerceTypes: false });
   const lenientAjv = new Ajv({ ...baseAjvOptions, coerceTypes: 'array' });
+  // ajv-formats adds the standard string formats (uuid, date-time, email, …).
+  // We use `format: 'uuid'` on path params to reject obviously-bad IDs at
+  // the edge instead of round-tripping the DB to discover they don't exist.
+  addFormats(strictAjv);
+  addFormats(lenientAjv);
   app.setValidatorCompiler(({ schema, httpPart }) => {
     const ajv = httpPart === 'body' ? strictAjv : lenientAjv;
     return ajv.compile(schema);
@@ -58,7 +66,9 @@ export async function buildApp(): Promise<FastifyInstance> {
       });
     }
     req.log.error({ err }, 'unhandled error');
-    return reply.code(500).send({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong' } });
+    return reply
+      .code(500)
+      .send({ error: { code: 'INTERNAL_ERROR', message: 'Something went wrong' } });
   });
 
   // Liveness: is the process up? Always OK if we can answer.
@@ -80,6 +90,24 @@ export async function buildApp(): Promise<FastifyInstance> {
   app.get('/health', live);
   app.get('/health/live', live);
   app.get('/health/ready', ready);
+
+  // OpenAPI 3.1 spec is generated from every route's JSON schemas.
+  // Interactive UI served at /docs.
+  await app.register(fastifySwagger, {
+    openapi: {
+      openapi: '3.1.0',
+      info: {
+        title: 'Wallet Service',
+        description: 'Prepaid wallet API — credits, debits, balance, ledger.',
+        version: '0.1.0',
+      },
+      tags: [{ name: 'wallets', description: 'Wallet operations' }],
+    },
+  });
+  await app.register(fastifySwaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: { docExpansion: 'list', deepLinking: true },
+  });
 
   await registerWalletRoutes(app);
 

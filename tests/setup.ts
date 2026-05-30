@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach } from 'vitest';
-import { closeDb, db } from '../src/db';
+import { db } from '../src/db';
 import { buildApp } from '../src/app';
 import type { FastifyInstance } from 'fastify';
 
@@ -18,5 +18,5 @@ beforeEach(async () => {
 
 afterAll(async () => {
   await app.close();
-  await closeDb();
+  await db.destroy();
 });

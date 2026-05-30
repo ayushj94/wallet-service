@@ -20,7 +20,3 @@ const pool = new Pool({
 export const db = new Kysely<Database>({
   dialect: new PostgresDialect({ pool }),
 });
-
-export async function closeDb(): Promise<void> {
-  await db.destroy();
-}

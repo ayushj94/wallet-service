@@ -10,11 +10,12 @@
 
 <sub>
 
+[![CI](https://github.com/ayushj94/wallet-service/actions/workflows/ci.yml/badge.svg)](https://github.com/ayushj94/wallet-service/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/node-20-339933?logo=node.js&logoColor=white)
 ![TypeScript](https://img.shields.io/badge/typescript-5.5-3178C6?logo=typescript&logoColor=white)
 ![Postgres](https://img.shields.io/badge/postgres-16-336791?logo=postgresql&logoColor=white)
 ![Fastify](https://img.shields.io/badge/fastify-4-000000?logo=fastify&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-48_passing-brightgreen)
+![Tests](https://img.shields.io/badge/tests-51_passing-brightgreen)
 
 </sub>
 
@@ -83,10 +84,11 @@ docker compose up --build
 
 That brings up Postgres, applies the schema on first boot, and starts the service on **[localhost:8080](http://localhost:8080)**.
 
-Health check:
+Health check + interactive API docs:
 
 ```bash
-curl localhost:8080/health
+curl localhost:8080/health           # liveness
+open http://localhost:8080/docs      # OpenAPI 3.1 spec & try-it-out UI
 ```
 
 <details>
@@ -181,6 +183,7 @@ npx tsx order-service-stub/place-order.ts <wallet-id> --retry
 | `GET`  | `/wallets/:id/transactions` | The ledger — every credit and debit (cursor-paginated) |
 | `GET`  | `/health/live` | Liveness — is the process up? |
 | `GET`  | `/health/ready` | Readiness — is the DB reachable? |
+| `GET`  | `/docs` | Interactive OpenAPI 3.1 spec (auto-generated from JSON schemas) |
 
 ### 💱 Amount conventions
 
@@ -693,7 +696,7 @@ For the very-long-tail case where a wallet's `balance + amount` would exceed Pos
 The test suite runs against a **real Postgres instance**, not a mock — because the questions this service has to answer (does the row lock work? does the unique constraint catch races?) are precisely what a mock would lie about.
 
 <details open>
-<summary><b>📋 48 tests across 12 categories</b></summary>
+<summary><b>📋 51 tests across 13 categories</b></summary>
 
 | Category | What it asserts |
 | --- | --- |
@@ -714,13 +717,20 @@ The test suite runs against a **real Postgres instance**, not a mock — because
 | 📄 Pagination cursor invalid | Invalid cursor → 400 |
 | 🩺 Health endpoints | `/health/live`, `/health/ready` (with DB check), `/health` legacy alias |
 | 💯 Amount range | Accepts `MAX_SAFE_INTEGER`; rejects above; cumulative overflow → 422 |
+| 📚 OpenAPI docs | `/docs/json` exposes OpenAPI 3.1 spec with every documented route |
+| 🆔 UUID path validation | Non-UUID path params → 400 (no DB round-trip) |
 
 </details>
 
 ```bash
 docker compose up -d postgres   # start the DB
-npm test                        # run the suite
+npm test                        # run the suite (51 tests)
+npm run typecheck               # strict tsc
+npm run lint                    # ESLint with TypeScript + Prettier configs
+npm run format                  # prettier --write
 ```
+
+CI runs all of these on every push and pull request — see `.github/workflows/ci.yml`.
 
 > 🌪 The **chaos test** is the most valuable one. If `SUM(ledger) == balance` ever fails, it means the atomicity between the ledger insert and the wallet update has broken — that's a canary worth keeping forever.
 

@@ -14,7 +14,9 @@ async function main(): Promise<void> {
   await client.connect();
 
   const dir = join(__dirname, '..', '..', 'migrations');
-  const files = readdirSync(dir).filter((f) => f.endsWith('.sql')).sort();
+  const files = readdirSync(dir)
+    .filter((f) => f.endsWith('.sql'))
+    .sort();
 
   for (const file of files) {
     const sql = readFileSync(join(dir, file), 'utf8');

@@ -84,7 +84,9 @@ async function placeOrder(walletId: string, opts: { retry: boolean }): Promise<v
   const { status, body } = await callDeduct(walletId, orderId, currency);
   if (status >= 400) {
     const err = body as ErrorResponse;
-    console.error(`[order-service] Deduct failed (${status} ${err.error.code}): ${err.error.message}`);
+    console.error(
+      `[order-service] Deduct failed (${status} ${err.error.code}): ${err.error.message}`,
+    );
     console.error(`[order-service] Order ${orderId} REJECTED`);
     process.exit(1);
   }
