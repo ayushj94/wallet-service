@@ -97,8 +97,6 @@ Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness
 
 > 📚 Also useful: [`GET /docs`](http://localhost:8080/docs) (interactive OpenAPI try-it-out UI), [`GET /docs/json`](http://localhost:8080/docs/json) (raw OpenAPI spec).
 
-Five endpoints. Click any to see the contract and a curl example.
-
 <details>
 <summary><b>POST /wallets</b> · Open a wallet for a customer</summary>
 
@@ -472,14 +470,6 @@ curl "http://localhost:8080/wallets/<wallet-id>/transactions?limit=50"
 
 </details>
 
-### 🤖 Order Service stub
-
-A small script that pretends to be the upstream Order Service. Demonstrates idempotency by retrying the same `order_id` and confirming the wallet does not get double-charged. This was required as a deliverable by the original spec.
-
-```bash
-npx tsx order-service-stub/place-order.ts <wallet-id> --retry
-```
-
 ---
 
 ## 🎯 5. System Design
@@ -693,6 +683,14 @@ npm run format                  # prettier --write
 ```
 
 CI runs all of these on every push and pull request.
+
+### 🤖 Order Service stub
+
+A small script that pretends to be the upstream Order Service. Demonstrates idempotency by retrying the same `order_id` and confirming the wallet does not get double-charged. This was required as a deliverable by the original spec.
+
+```bash
+npx tsx order-service-stub/place-order.ts <wallet-id> --retry
+```
 
 ---
 
