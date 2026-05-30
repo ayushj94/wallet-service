@@ -871,11 +871,3 @@ npx tsx order-service-stub/place-order.ts <wallet-id> --retry
 │   └── wallet.test.ts             # 54 tests across 13 categories
 └── .github/workflows/ci.yml       # GitHub Actions: typecheck, lint, format, test
 ```
-
-<br/>
-
-<div align="center">
-
-<sub>Emphasis on engineering judgment, not line count.</sub>
-
-</div>
