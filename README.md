@@ -53,7 +53,7 @@ The fastest path needs **only Docker**. Everything else (Postgres, Node, depende
 
 ## ⚡ 2. Run it
 
-### 🐳 Docker
+### 🐳 Docker · ✅ Recommended
 
 ```bash
 docker compose up --build
