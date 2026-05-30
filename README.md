@@ -546,28 +546,86 @@ The interesting engineering choices and the reasoning behind each.
 
 ### 🗄 Table schema
 
-Two tables. The ledger is the audit trail; the wallet's `balance` column is a running total kept honest by transactional atomicity.
+Two tables. `wallets` is the running balance; `wallet_ledger_entries` is the append-only audit trail. Every credit or debit writes to both inside the same DB transaction.
 
+#### Entity-relationship diagram
+
+```mermaid
+erDiagram
+    WALLETS ||--o{ WALLET_LEDGER_ENTRIES : "tracks"
+    WALLETS {
+        uuid id PK
+        uuid customer_id UK
+        char currency
+        bigint balance
+        timestamptz created_at
+        timestamptz updated_at
+    }
+    WALLET_LEDGER_ENTRIES {
+        uuid id PK
+        uuid wallet_id FK
+        enum entry_type
+        bigint amount
+        bigint balance_after
+        varchar reference_type
+        varchar reference_id
+        timestamptz created_at
+    }
 ```
-┌────────────────────────────┐         ┌────────────────────────────────────┐
-│ wallets                    │         │ wallet_ledger_entries              │
-│ ────────────────────────── │         │ ────────────────────────────────── │
-│ id                  UUID   │◀────────│ wallet_id            UUID          │
-│ customer_id  UNIQUE        │         │ id                   UUID          │
-│ currency            CHAR(3)│         │ entry_type           CREDIT/DEBIT  │
-│ balance             BIGINT │         │ amount               BIGINT > 0    │
-│ created_at, updated_at     │         │ balance_after        BIGINT        │
-│                            │         │ reference_type       VARCHAR(32)   │
-│ CHECK balance ≥ 0          │         │ reference_id         VARCHAR(128)  │
-│ CHECK currency known       │         │ created_at           TIMESTAMPTZ   │
-└────────────────────────────┘         │                                    │
-                                       │ UNIQUE(wallet_id,                  │
-                                       │        reference_type,             │
-                                       │        reference_id)               │
-                                       │ CHECK amount > 0                   │
-                                       │ CHECK balance_after ≥ 0            │
-                                       └────────────────────────────────────┘
-```
+
+<br/>
+
+#### Columns
+
+<table>
+<tr>
+<td valign="top" width="50%">
+
+**`wallets`** &nbsp;·&nbsp; one row per customer
+
+| Column | Type | Notes |
+| :--- | :--- | :--- |
+| `id` | `UUID` | Primary key |
+| `customer_id` | `UUID` | Unique per customer |
+| `currency` | `CHAR(3)` | `USD`, `EUR`, `GBP`, `CAD`, `INR` |
+| `balance` | `BIGINT` | In minor units |
+| `created_at` | `TIMESTAMPTZ` | |
+| `updated_at` | `TIMESTAMPTZ` | Bumped on every mutation |
+
+</td>
+<td valign="top" width="50%">
+
+**`wallet_ledger_entries`** &nbsp;·&nbsp; append-only audit log
+
+| Column | Type | Notes |
+| :--- | :--- | :--- |
+| `id` | `UUID` | Primary key |
+| `wallet_id` | `UUID` | References `wallets(id)` |
+| `entry_type` | `ENUM` | `CREDIT` or `DEBIT` |
+| `amount` | `BIGINT` | Always positive |
+| `balance_after` | `BIGINT` | Wallet balance right after this row |
+| `reference_type` | `VARCHAR(32)` | Whitelisted upstream system |
+| `reference_id` | `VARCHAR(128)` | Source-system instruction ID |
+| `created_at` | `TIMESTAMPTZ` | Set via `clock_timestamp()` |
+
+</td>
+</tr>
+</table>
+
+<br/>
+
+#### Constraints
+
+| Where | Rule | What it guarantees |
+| :--- | :--- | :--- |
+| `wallets` | `UNIQUE (customer_id)` | One wallet per customer |
+| `wallets` | `CHECK (balance >= 0)` | The never-negative rule, at the DB layer |
+| `wallets` | `CHECK (currency IN ('USD','EUR','GBP','CAD','INR'))` | Only the whitelisted currencies |
+| `wallet_ledger_entries` | `UNIQUE (wallet_id, reference_type, reference_id)` | Idempotency: same reference returns the existing entry |
+| `wallet_ledger_entries` | `CHECK (amount > 0)` | Direction lives in `entry_type`; amount is unsigned |
+| `wallet_ledger_entries` | `CHECK (balance_after >= 0)` | Mirrors the wallets invariant at the row level |
+| `wallet_ledger_entries` | `CHECK (reference_type IN ('ORDER_SYSTEM','PAYMENT_GATEWAY_SYSTEM'))` | Only whitelisted callers can write |
+| `wallet_ledger_entries` | `FOREIGN KEY (wallet_id) REFERENCES wallets(id)` | No orphan ledger entries |
 
 > 🔑 The wallet update and the ledger insert always happen inside the **same DB transaction**. They commit together or roll back together, so the balance can never drift from the ledger.
 
