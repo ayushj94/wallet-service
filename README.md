@@ -104,12 +104,17 @@ Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness
 
 > Not idempotent. A second request with the same `customerId` returns `409`.
 
-**Request body**
+**Request body** (JSON Schema)
 
 ```jsonc
 {
-  "customerId": "string",   // required, 1 to 64 chars
-  "currency": "string"      // required, one of: USD, EUR, GBP, CAD, INR
+  "type": "object",
+  "required": ["customerId", "currency"],
+  "properties": {
+    "customerId": { "type": "string", "minLength": 1, "maxLength": 64 },
+    "currency":   { "type": "string", "enum": ["USD", "EUR", "GBP", "CAD", "INR"] }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -175,14 +180,19 @@ curl -X POST http://localhost:8080/wallets \
 
 > 🔁 Idempotent on `(walletId, referenceType, referenceId)`.
 
-**Request body**
+**Request body** (JSON Schema)
 
 ```jsonc
 {
-  "amount": "integer",         // required, minor units, 1 to 9_007_199_254_740_991
-  "currency": "string",        // required, must match the wallet's currency
-  "referenceType": "string",   // required, 1 to 32 chars (e.g. PAYMENT_SYSTEM)
-  "referenceId": "string"      // required, 1 to 128 chars (the source instruction ID)
+  "type": "object",
+  "required": ["amount", "currency", "referenceType", "referenceId"],
+  "properties": {
+    "amount":        { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "currency":      { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] },
+    "referenceType": { "type": "string",  "minLength": 1, "maxLength": 32 },
+    "referenceId":   { "type": "string",  "minLength": 1, "maxLength": 128 }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -267,14 +277,19 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/topup \
 
 > 🔁 Idempotent on `(walletId, referenceType, referenceId)`.
 
-**Request body**
+**Request body** (JSON Schema)
 
 ```jsonc
 {
-  "amount": "integer",         // required, minor units, 1 to 9_007_199_254_740_991
-  "currency": "string",        // required, must match the wallet's currency
-  "referenceType": "string",   // required, 1 to 32 chars (e.g. ORDER_SYSTEM)
-  "referenceId": "string"      // required, the source instruction ID
+  "type": "object",
+  "required": ["amount", "currency", "referenceType", "referenceId"],
+  "properties": {
+    "amount":        { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "currency":      { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] },
+    "referenceType": { "type": "string",  "minLength": 1, "maxLength": 32 },
+    "referenceId":   { "type": "string",  "minLength": 1, "maxLength": 128 }
+  },
+  "additionalProperties": false
 }
 ```
 
@@ -408,14 +423,20 @@ curl http://localhost:8080/wallets/<wallet-id>/balance
 
 <br/>
 
-**Query parameters**
+**Query parameters** (JSON Schema)
 
 ```jsonc
 {
-  "limit": "integer",        // optional, 1 to 500, default 100
-  "cursor": "string"         // optional, the id of the last entry from the previous page
+  "type": "object",
+  "properties": {
+    "limit":  { "type": "integer", "minimum": 1, "maximum": 500 },
+    "cursor": { "type": "string",  "minLength": 1, "maxLength": 64 }
+  },
+  "additionalProperties": false
 }
 ```
+
+Defaults: `limit = 100` if omitted; no `cursor` returns the first page.
 
 **Responses**
 
