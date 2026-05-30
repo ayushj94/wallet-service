@@ -431,20 +431,18 @@ curl http://localhost:8080/wallets/<wallet-id>/balance
 
 <br/>
 
-**Query parameters** (JSON Schema)
+**URL pattern**
 
-```jsonc
-{
-  "type": "object",
-  "properties": {
-    "limit":  { "type": "integer", "minimum": 1, "maximum": 500 },
-    "cursor": { "type": "string",  "minLength": 1, "maxLength": 64 }
-  },
-  "additionalProperties": false
-}
+```
+GET /wallets/:id/transactions?limit=<integer>&cursor=<string>
 ```
 
-Defaults: `limit = 100` if omitted; no `cursor` returns the first page.
+**Query parameters**
+
+| Name | Type | Constraints | Default | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| `limit` | integer | 1 – 500 | 100 | Page size. |
+| `cursor` | string | 1 – 64 chars | _(none)_ | The `walletLedgerEntryId` of the last entry from the previous page. Omit for the first page. |
 
 **Responses**
 
