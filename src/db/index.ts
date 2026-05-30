@@ -5,7 +5,7 @@ import type { Database } from './schema';
 
 // pg returns BIGINT as a string by default to avoid silent precision loss
 // for values above 2^53. Our balances/amounts are paise and stay well below
-// that — parsing as a JS number is safe and keeps the rest of the code simple.
+// that, so parsing as a JS number is safe and keeps the rest of the code simple.
 types.setTypeParser(20, (val) => parseInt(val, 10));
 
 const pool = new Pool({

@@ -5,7 +5,7 @@ import { app } from './setup';
 import { db } from '../src/db';
 import type { Currency } from '../src/db/schema';
 
-// All helpers require `currency` explicitly — no defaults. Financial code paths
+// All helpers require `currency` explicitly. No defaults. Financial code paths
 // should never assume a currency.
 
 async function createWallet(currency: Currency): Promise<string> {
@@ -117,7 +117,7 @@ describe('idempotency', () => {
     expect(second.json().idempotent).toBe(true);
     expect(second.json().entry.id).toBe(first.json().entry.id);
     // Replay returns the balance as it was right after the original op,
-    // not the current balance — true idempotent semantics.
+    // not the current balance. True idempotent semantics.
     expect(second.json().balance).toBe(first.json().balance);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
@@ -174,7 +174,7 @@ describe('idempotency', () => {
 });
 
 describe('concurrency', () => {
-  it('serializes concurrent debits — only as many succeed as the balance allows', async () => {
+  it('serializes concurrent debits, only as many succeed as the balance allows', async () => {
     const id = await createWallet('INR');
     await topup(id, 30000, 'INR'); // exactly 3 debits of 10000
 
@@ -366,7 +366,7 @@ describe('validation and not-found', () => {
 describe('pagination on /transactions', () => {
   it('paginates through entries in order, with stable cursors', async () => {
     const id = await createWallet('INR');
-    // 12 credits — enough to need multiple pages at limit=5.
+    // 12 credits. Enough to need multiple pages at limit=5.
     for (let i = 0; i < 12; i++) {
       const r = await topup(id, 1000 + i, 'INR', `topup-${i}`);
       expect(r.statusCode).toBe(201);
@@ -466,7 +466,7 @@ describe('amount overflow safety', () => {
 
   it('rejects an amount above the JS safe integer range', async () => {
     const id = await createWallet('INR');
-    // 1 above MAX_SAFE_INTEGER — Ajv catches this via the maximum constraint.
+    // 1 above MAX_SAFE_INTEGER. Ajv catches this via the maximum constraint.
     const res = await app.inject({
       method: 'POST',
       url: `/wallets/${id}/topup`,
@@ -495,7 +495,7 @@ describe('amount overflow safety', () => {
     expect(res.statusCode).toBe(422);
     expect(res.json().error.code).toBe('AMOUNT_OUT_OF_RANGE');
 
-    // Balance must be unchanged — the failed UPDATE rolled back.
+    // Balance must be unchanged. The failed UPDATE rolled back.
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
     expect(bal.json().balance).toBeLessThan(9223372036854776000);
   });
@@ -503,7 +503,7 @@ describe('amount overflow safety', () => {
 
 describe('amount must be a positive integer', () => {
   // These are caught by Fastify's JSON-schema validation before the route handler
-  // ever runs — so a malformed request never reaches the database.
+  // ever runs, so a malformed request never reaches the database.
   const invalidAmounts: Array<{ amount: unknown; label: string }> = [
     { amount: -1, label: 'negative integer' },
     { amount: -100, label: 'large negative integer' },

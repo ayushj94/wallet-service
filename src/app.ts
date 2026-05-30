@@ -53,7 +53,7 @@ export async function buildApp(): Promise<FastifyInstance> {
         error: { code: 'IDEMPOTENCY_CONFLICT', message: 'Duplicate idempotency key' },
       });
     }
-    // SQLSTATE 22003 is numeric_value_out_of_range — fires when balance + amount
+    // SQLSTATE 22003 is numeric_value_out_of_range. Fires when balance + amount
     // would exceed BIGINT (2^63 - 1). The amount itself is already capped at
     // Number.MAX_SAFE_INTEGER, but cumulative balance could in theory reach this
     // for very long-lived wallets. Return a clean 422 instead of leaking a 500.
@@ -98,7 +98,7 @@ export async function buildApp(): Promise<FastifyInstance> {
       openapi: '3.1.0',
       info: {
         title: 'Wallet Service',
-        description: 'Prepaid wallet API — credits, debits, balance, ledger.',
+        description: 'Prepaid wallet API: credits, debits, balance, ledger.',
         version: '0.1.0',
       },
       tags: [{ name: 'wallets', description: 'Wallet operations' }],

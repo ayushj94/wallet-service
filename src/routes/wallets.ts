@@ -13,11 +13,11 @@ const idParam = {
 } as const;
 
 // amount and currency are required on both topup and deduct. The currency on
-// the request acts as a "I think this wallet is in X" assertion — if it
+// the request acts as a "I think this wallet is in X" assertion. If it
 // disagrees with the wallet, we return 422 instead of silently mis-charging.
 //
 // `maximum` on amount is Number.MAX_SAFE_INTEGER (2^53 - 1). This isn't a
-// business cap — it's the largest integer JavaScript numbers can represent
+// business cap. It's the largest integer JavaScript numbers can represent
 // without precision loss. Above this, JSON.parse silently rounds, which
 // would corrupt amounts mid-flight. We reject before that can happen.
 const MAX_SAFE_AMOUNT = Number.MAX_SAFE_INTEGER; // 9_007_199_254_740_991

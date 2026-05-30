@@ -1,10 +1,10 @@
 -- A wallet holds money for one customer in one currency. balance is the running
--- total — every successful credit/debit updates it inside the same transaction
+-- total. Every successful credit/debit updates it inside the same transaction
 -- that records the corresponding ledger entry, so they can never drift.
 --
 -- Amounts are stored as integers in the smallest unit of the currency
 -- (cents for USD/EUR/GBP/CAD, paise for INR). This is the standard fintech
--- convention — Stripe, Razorpay, Adyen all work this way. Integer math is
+-- convention (Stripe, Razorpay, Adyen all work this way). Integer math is
 -- exact, JSON-safe, and avoids floating-point drift.
 
 CREATE TABLE IF NOT EXISTS wallets (
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS wallets (
 
 -- The ledger is an append-only record of every money movement for a wallet.
 -- balance_after snapshots the wallet balance immediately after this entry
--- was applied — keeps history auditable without replaying logic.
+-- was applied. Keeps history auditable without replaying logic.
 --
 -- (reference_type, reference_id) identifies the upstream business event that
 -- caused this entry. The unique constraint on (wallet_id, reference_type,

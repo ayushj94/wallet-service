@@ -6,14 +6,14 @@
  *
  * Demonstrates:
  *   - Normal happy-path deduction (amount of 10000 minor units of whatever
- *     currency the wallet is in — ₹100, $100, etc.).
+ *     currency the wallet is in: $100, €100, ₹100, etc.).
  *   - Idempotency: re-sending the same order_id (as reference_id under the
  *     ORDER_SYSTEM reference_type) returns the same ledger entry without
  *     double-deducting.
  *   - Failure path: insufficient balance is surfaced cleanly.
  *
  * The stub starts by fetching the wallet's balance to discover its currency,
- * then uses that currency in the deduct call. No currency is hardcoded — a
+ * then uses that currency in the deduct call. No currency is hardcoded. A
  * real Order Service would also know which currency the wallet operates in
  * before issuing instructions to the wallet service.
  *
@@ -93,12 +93,12 @@ async function placeOrder(walletId: string, opts: { retry: boolean }): Promise<v
 
   const ok = body as DeductResponse;
   console.log(
-    `[order-service] Deduct OK — ledger entry ${ok.entry.id}, balance now ${ok.balance} ${ok.currency}`,
+    `[order-service] Deduct OK. ledger entry ${ok.entry.id}, balance now ${ok.balance} ${ok.currency}`,
   );
   console.log(`[order-service] Order ${orderId} CONFIRMED`);
 
   if (opts.retry) {
-    console.log('\n[order-service] Simulating network retry — same order_id, must be idempotent');
+    console.log('\n[order-service] Simulating network retry. Same order_id, must be idempotent');
     const retry = await callDeduct(walletId, orderId, currency);
     const r = retry.body as DeductResponse;
     if (retry.status >= 400) {
@@ -106,7 +106,7 @@ async function placeOrder(walletId: string, opts: { retry: boolean }): Promise<v
       process.exit(1);
     }
     console.log(
-      `[order-service] Retry response — idempotent=${r.idempotent}, same entry id=${r.entry.id === ok.entry.id}, balance still ${r.balance}`,
+      `[order-service] Retry response. idempotent=${r.idempotent}, same entry id=${r.entry.id === ok.entry.id}, balance still ${r.balance}`,
     );
     if (!r.idempotent || r.entry.id !== ok.entry.id || r.balance !== ok.balance) {
       console.error('[order-service] Idempotency check FAILED');

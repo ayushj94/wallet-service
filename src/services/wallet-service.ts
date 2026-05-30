@@ -19,7 +19,7 @@ export interface LedgerOperationInput {
   amount: number;
   referenceType: string;
   referenceId: string;
-  currency: Currency; // required — must match the wallet's currency
+  currency: Currency; // required, must match the wallet's currency
 }
 
 export interface LedgerOperationResult {
@@ -207,9 +207,9 @@ function idempotentResult(entry: WalletLedgerEntryRow, currency: Currency): Ledg
 
 /**
  * Inside one transaction:
- *   - Conditional UPDATE on wallets — succeeds only if balance + signed stays
+ *   - Conditional UPDATE on wallets. Succeeds only if balance + signed stays
  *     non-negative. Returns the new balance.
- *   - INSERT into the ledger with ON CONFLICT DO NOTHING — if a concurrent
+ *   - INSERT into the ledger with ON CONFLICT DO NOTHING. If a concurrent
  *     request committed an entry with the same reference, returns 0 rows.
  *     We throw IdempotencyRace so the transaction rolls back, then the
  *     caller fetches the winning entry.
