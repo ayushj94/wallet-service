@@ -442,7 +442,7 @@ GET /wallets/:id/transactions?limit=<integer>&cursor=<string>
 | Name | Type | Constraints | Default | Description |
 | :--- | :--- | :--- | :--- | :--- |
 | `limit` | integer | 1 – 500 | 100 | Page size. |
-| `cursor` | string (UUID) | UUID format | _(none)_ | The `walletLedgerEntryId` of the last entry from the previous page. Omit for the first page. |
+| `cursor` | string (UUID) | UUID format | _(none)_ | The `walletLedgerEntryId` of the last entry from the previous page. **Omit it to fetch the first page** (the most recent `limit` entries, newest first). |
 
 **Responses**
 
