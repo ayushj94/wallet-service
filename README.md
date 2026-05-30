@@ -125,11 +125,14 @@ Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness
 
 ```jsonc
 {
-  "id": "string",            // UUID
-  "customerId": "string",    // UUID (same one the caller supplied)
-  "currency": "string",
-  "balance": 0,              // integer, minor units of the currency
-  "createdAt": "string"      // ISO 8601 timestamp
+  "type": "object",
+  "properties": {
+    "id":         { "type": "string",  "format": "uuid" },
+    "customerId": { "type": "string",  "format": "uuid" },
+    "currency":   { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] },
+    "balance":    { "type": "integer" },
+    "createdAt":  { "type": "string",  "format": "date-time" }
+  }
 }
 ```
 
@@ -203,19 +206,25 @@ curl -X POST http://localhost:8080/wallets \
 
 ```jsonc
 {
-  "entry": {
-    "id": "string",            // UUID
-    "walletId": "string",      // UUID
-    "entryType": "string",     // CREDIT or DEBIT
-    "amount": "integer",
-    "balanceAfter": "integer",
-    "referenceType": "string",
-    "referenceId": "string",
-    "createdAt": "string"      // ISO 8601 timestamp
-  },
-  "balance": "integer",
-  "currency": "string",
-  "idempotent": false
+  "type": "object",
+  "properties": {
+    "entry": {
+      "type": "object",
+      "properties": {
+        "id":            { "type": "string",  "format": "uuid" },
+        "walletId":      { "type": "string",  "format": "uuid" },
+        "entryType":     { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
+        "amount":        { "type": "integer" },
+        "balanceAfter":  { "type": "integer" },
+        "referenceType": { "type": "string" },
+        "referenceId":   { "type": "string" },
+        "createdAt":     { "type": "string",  "format": "date-time" }
+      }
+    },
+    "balance":    { "type": "integer" },
+    "currency":   { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] },
+    "idempotent": { "type": "boolean" }
+  }
 }
 ```
 
@@ -300,19 +309,25 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/topup \
 
 ```jsonc
 {
-  "entry": {
-    "id": "string",
-    "walletId": "string",
-    "entryType": "string",     // DEBIT
-    "amount": "integer",
-    "balanceAfter": "integer",
-    "referenceType": "string",
-    "referenceId": "string",
-    "createdAt": "string"
-  },
-  "balance": "integer",
-  "currency": "string",
-  "idempotent": false
+  "type": "object",
+  "properties": {
+    "entry": {
+      "type": "object",
+      "properties": {
+        "id":            { "type": "string",  "format": "uuid" },
+        "walletId":      { "type": "string",  "format": "uuid" },
+        "entryType":     { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
+        "amount":        { "type": "integer" },
+        "balanceAfter":  { "type": "integer" },
+        "referenceType": { "type": "string" },
+        "referenceId":   { "type": "string" },
+        "createdAt":     { "type": "string",  "format": "date-time" }
+      }
+    },
+    "balance":    { "type": "integer" },
+    "currency":   { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] },
+    "idempotent": { "type": "boolean" }
+  }
 }
 ```
 
@@ -384,9 +399,12 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/deduct \
 
 ```jsonc
 {
-  "walletId": "string",      // UUID
-  "balance": "integer",      // minor units of the currency
-  "currency": "string"
+  "type": "object",
+  "properties": {
+    "walletId": { "type": "string",  "format": "uuid" },
+    "balance":  { "type": "integer" },
+    "currency": { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] }
+  }
 }
 ```
 
@@ -445,23 +463,32 @@ Defaults: `limit = 100` if omitted; no `cursor` returns the first page.
 
 ```jsonc
 {
-  "walletId": "string",
-  "entries": [
-    {
-      "id": "string",
-      "walletId": "string",
-      "entryType": "string",     // CREDIT or DEBIT
-      "amount": "integer",
-      "balanceAfter": "integer",
-      "referenceType": "string",
-      "referenceId": "string",
-      "createdAt": "string"
-    }
-  ],
-  "nextCursor": "string",        // or null, feed back as cursor for the next page
-  "hasMore": "boolean"
+  "type": "object",
+  "properties": {
+    "walletId": { "type": "string", "format": "uuid" },
+    "entries": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id":            { "type": "string",  "format": "uuid" },
+          "walletId":      { "type": "string",  "format": "uuid" },
+          "entryType":     { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
+          "amount":        { "type": "integer" },
+          "balanceAfter":  { "type": "integer" },
+          "referenceType": { "type": "string" },
+          "referenceId":   { "type": "string" },
+          "createdAt":     { "type": "string",  "format": "date-time" }
+        }
+      }
+    },
+    "nextCursor": { "type": ["string", "null"] },
+    "hasMore":    { "type": "boolean" }
+  }
 }
 ```
+
+Feed `nextCursor` back as the `cursor` query parameter to get the next page.
 
 </details>
 
