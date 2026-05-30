@@ -98,7 +98,7 @@ Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness
 > 📚 Also useful: [`GET /docs`](http://localhost:8080/docs) (interactive OpenAPI try-it-out UI), [`GET /docs/json`](http://localhost:8080/docs/json) (raw OpenAPI spec).
 
 <details>
-<summary><b>POST /wallets</b> · Open a wallet for a customer</summary>
+<summary><code><b>POST /wallets</b></code> · Open a wallet for a customer</summary>
 
 <br/>
 
@@ -169,7 +169,7 @@ curl -X POST http://localhost:8080/wallets \
 </details>
 
 <details>
-<summary><b>POST /wallets/:id/topup</b> · Credit money to a wallet</summary>
+<summary><code><b>POST /wallets/:id/topup</b></code> · Credit money to a wallet</summary>
 
 <br/>
 
@@ -261,7 +261,7 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/topup \
 </details>
 
 <details>
-<summary><b>POST /wallets/:id/deduct</b> · Debit money from a wallet</summary>
+<summary><code><b>POST /wallets/:id/deduct</b></code> · Debit money from a wallet</summary>
 
 <br/>
 
@@ -358,7 +358,7 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/deduct \
 </details>
 
 <details>
-<summary><b>GET /wallets/:id/balance</b> · Current balance</summary>
+<summary><code><b>GET /wallets/:id/balance</b></code> · Current balance</summary>
 
 <br/>
 
@@ -404,7 +404,7 @@ curl http://localhost:8080/wallets/<wallet-id>/balance
 </details>
 
 <details>
-<summary><b>GET /wallets/:id/transactions</b> · Ledger (cursor-paginated, newest first)</summary>
+<summary><code><b>GET /wallets/:id/transactions</b></code> · Ledger (cursor-paginated, newest first)</summary>
 
 <br/>
 
