@@ -529,6 +529,11 @@ The interesting engineering choices and the reasoning behind each.
 | **Docker Compose** | One-command local dev (Postgres + service together) |
 | **GitHub Actions** | CI: typecheck, lint, format, tests on every push and PR |
 
+
+<hr/>
+
+<br/>
+
 ### 🗄 Table schema
 
 Two tables. The ledger is the audit trail; the wallet's `balance` column is a running total kept honest by transactional atomicity.
@@ -555,6 +560,11 @@ Two tables. The ledger is the audit trail; the wallet's `balance` column is a ru
 ```
 
 > 🔑 The wallet update and the ledger insert always happen inside the **same DB transaction**. They commit together or roll back together, so the balance can never drift from the ledger.
+
+
+<hr/>
+
+<br/>
 
 ### 💰 Maintaining current balance: three approaches
 
@@ -597,6 +607,11 @@ Slightly purer, but a wallet that grows additional fields (status, tier, frozen-
 
 </details>
 
+
+<hr/>
+
+<br/>
+
 ### 💱 Handling currency and decimals
 
 **One currency per wallet, today.** Every wallet is created in exactly one currency and only accepts operations in that same currency. Every mutation request must include a `currency` field; if it does not match the wallet's currency, the request is rejected with `422 CURRENCY_MISMATCH` before any state changes.
@@ -611,6 +626,11 @@ Why integer minor units?
 - JSON numbers carry numbers safely up to 2⁵³; staying as integers avoids precision loss in transit.
 - The ISO 4217 standard defines the minor unit per currency (0 decimals for JPY, 2 for USD, 3 for BHD). Clients are expected to know their currency's decimal count.
 
+
+<hr/>
+
+<br/>
+
 ### 💯 Handling amount overflow
 
 Two real limits live in the stack. Both are technical, not business.
@@ -622,9 +642,19 @@ Two real limits live in the stack. Both are technical, not business.
 
 The transaction rolls back on the DB error, so the wallet is unchanged.
 
+
+<hr/>
+
+<br/>
+
 ### 🆔 Preventing duplicate wallets
 
 A `UNIQUE (customer_id)` constraint on the `wallets` table. The constraint lives in the database, not the application. Two concurrent `POST /wallets` requests with the same `customerId` cannot both succeed: one wins, the other gets a unique-key violation that the error handler maps to `409 CONFLICT`. No application-level coordination needed.
+
+
+<hr/>
+
+<br/>
 
 ### 🔁 Ensuring idempotency: the right scope
 
@@ -637,6 +667,11 @@ What should the dedupe key for "I have already processed this instruction" actua
 | **`(walletId, referenceType, referenceId)`** | Each wallet has its own dedupe space. Same campaign id across many wallets credits each wallet exactly once | ✅ Correct |
 
 > 🔑 Adding `walletId` to the scope is what unlocks legitimate **mass-update flows** (cashback campaigns, subscription billing, disaster-relief credits). Without it, those flows silently drop 99% of the operations.
+
+
+<hr/>
+
+<br/>
 
 ### 🔒 Locking: pessimistic vs optimistic
 
@@ -664,6 +699,11 @@ Atomic conditional update: `UPDATE wallets SET balance = balance + signed WHERE 
 
 > 🎯 For customer wallets (one person, occasional orders) contention is near zero. Optimistic wins on the average path by a wide margin.
 
+
+<hr/>
+
+<br/>
+
 ### 🐘 Why Postgres, not MySQL
 
 Three Postgres features make the optimistic pattern clean to write:
@@ -675,6 +715,11 @@ Three Postgres features make the optimistic pattern clean to write:
 | Conditional UPDATE in one round-trip | Check-and-mutate as one atomic statement; no separate lock acquisition step. |
 
 MySQL would work too, but every operation would need an extra round-trip. Postgres is faster on the happy path and easier to read.
+
+
+<hr/>
+
+<br/>
 
 ### 📄 Pagination: cursor, not offset
 
