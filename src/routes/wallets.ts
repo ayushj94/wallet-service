@@ -66,6 +66,10 @@ const transactionsQuery = {
 // envelope. Fastify uses them both to serialise the output (via
 // fast-json-stringify) and to auto-generate OpenAPI docs at /docs.
 
+// `minimum` on numeric fields mirrors the DB CHECK constraints. Acts as
+// runtime defense-in-depth: if the service ever serialises a value outside
+// the allowed range (a bug), Fastify rejects the response instead of leaking
+// corrupt data to the client.
 const ledgerEntrySchema = {
   type: 'object',
   required: [
@@ -82,8 +86,8 @@ const ledgerEntrySchema = {
     walletLedgerEntryId: { type: 'string', format: 'uuid' },
     walletId: { type: 'string', format: 'uuid' },
     entryType: { type: 'string', enum: ['CREDIT', 'DEBIT'] },
-    amount: { type: 'integer' },
-    balanceAfter: { type: 'integer' },
+    amount: { type: 'integer', minimum: 1 }, // CHECK (amount > 0)
+    balanceAfter: { type: 'integer', minimum: 0 }, // CHECK (balance_after >= 0)
     referenceType: { type: 'string' },
     referenceId: { type: 'string' },
     walletLedgerEntryCreatedAt: { type: 'string', format: 'date-time' },
@@ -97,7 +101,7 @@ const walletResponseSchema = {
     id: { type: 'string', format: 'uuid' },
     customerId: { type: 'string', format: 'uuid' },
     currency: { type: 'string', enum: CURRENCY_VALUES },
-    balance: { type: 'integer' },
+    balance: { type: 'integer', minimum: 0 }, // CHECK (balance >= 0)
     createdAt: { type: 'string', format: 'date-time' },
   },
 } as const;
@@ -107,7 +111,7 @@ const balanceResponseSchema = {
   required: ['walletId', 'balance', 'currency'],
   properties: {
     walletId: { type: 'string', format: 'uuid' },
-    balance: { type: 'integer' },
+    balance: { type: 'integer', minimum: 0 }, // CHECK (balance >= 0)
     currency: { type: 'string', enum: CURRENCY_VALUES },
   },
 } as const;
@@ -133,8 +137,8 @@ const mutationResponseSchema = {
     walletLedgerEntryId: { type: 'string', format: 'uuid' },
     walletId: { type: 'string', format: 'uuid' },
     entryType: { type: 'string', enum: ['CREDIT', 'DEBIT'] },
-    amount: { type: 'integer' },
-    balanceAfter: { type: 'integer' },
+    amount: { type: 'integer', minimum: 1 }, // CHECK (amount > 0)
+    balanceAfter: { type: 'integer', minimum: 0 }, // CHECK (balance_after >= 0)
     referenceType: { type: 'string' },
     referenceId: { type: 'string' },
     walletLedgerEntryCreatedAt: { type: 'string', format: 'date-time' },

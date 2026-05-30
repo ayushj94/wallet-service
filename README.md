@@ -130,7 +130,7 @@ Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness
     "id":         { "type": "string",  "format": "uuid" },
     "customerId": { "type": "string",  "format": "uuid" },
     "currency":   { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] },
-    "balance":    { "type": "integer" },
+    "balance":    { "type": "integer", "minimum": 0 },
     "createdAt":  { "type": "string",  "format": "date-time" }
   }
 }
@@ -211,8 +211,8 @@ curl -X POST http://localhost:8080/wallets \
     "walletLedgerEntryId":        { "type": "string",  "format": "uuid" },
     "walletId":                   { "type": "string",  "format": "uuid" },
     "entryType":                  { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
-    "amount":                     { "type": "integer" },
-    "balanceAfter":               { "type": "integer" },
+    "amount":                     { "type": "integer", "minimum": 1 },
+    "balanceAfter":               { "type": "integer", "minimum": 0 },
     "referenceType":              { "type": "string" },
     "referenceId":                { "type": "string" },
     "walletLedgerEntryCreatedAt": { "type": "string",  "format": "date-time" },
@@ -307,8 +307,8 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/topup \
     "walletLedgerEntryId":        { "type": "string",  "format": "uuid" },
     "walletId":                   { "type": "string",  "format": "uuid" },
     "entryType":                  { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
-    "amount":                     { "type": "integer" },
-    "balanceAfter":               { "type": "integer" },
+    "amount":                     { "type": "integer", "minimum": 1 },
+    "balanceAfter":               { "type": "integer", "minimum": 0 },
     "referenceType":              { "type": "string" },
     "referenceId":                { "type": "string" },
     "walletLedgerEntryCreatedAt": { "type": "string",  "format": "date-time" },
@@ -388,7 +388,7 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/deduct \
   "type": "object",
   "properties": {
     "walletId": { "type": "string",  "format": "uuid" },
-    "balance":  { "type": "integer" },
+    "balance":  { "type": "integer", "minimum": 0 },
     "currency": { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] }
   }
 }
@@ -460,8 +460,8 @@ Defaults: `limit = 100` if omitted; no `cursor` returns the first page.
           "walletLedgerEntryId":        { "type": "string",  "format": "uuid" },
           "walletId":                   { "type": "string",  "format": "uuid" },
           "entryType":                  { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
-          "amount":                     { "type": "integer" },
-          "balanceAfter":               { "type": "integer" },
+          "amount":                     { "type": "integer", "minimum": 1 },
+          "balanceAfter":               { "type": "integer", "minimum": 0 },
           "referenceType":              { "type": "string" },
           "referenceId":                { "type": "string" },
           "walletLedgerEntryCreatedAt": { "type": "string",  "format": "date-time" }
