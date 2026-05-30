@@ -548,8 +548,6 @@ The interesting engineering choices and the reasoning behind each.
 
 Two tables. `wallets` is the running balance; `wallet_ledger_entries` is the append-only audit trail. Every credit or debit writes to both inside the same DB transaction.
 
-#### Entity-relationship diagram
-
 ```mermaid
 erDiagram
     WALLETS ||--o{ WALLET_LEDGER_ENTRIES : "tracks"
@@ -572,47 +570,6 @@ erDiagram
         timestamptz created_at
     }
 ```
-
-<br/>
-
-#### Columns
-
-<table>
-<tr>
-<td valign="top" width="50%">
-
-**`wallets`** &nbsp;·&nbsp; one row per customer
-
-| Column | Type | Notes |
-| :--- | :--- | :--- |
-| `id` | `UUID` | Primary key |
-| `customer_id` | `UUID` | Unique per customer |
-| `currency` | `CHAR(3)` | `USD`, `EUR`, `GBP`, `CAD`, `INR` |
-| `balance` | `BIGINT` | In minor units |
-| `created_at` | `TIMESTAMPTZ` | |
-| `updated_at` | `TIMESTAMPTZ` | Bumped on every mutation |
-
-</td>
-<td valign="top" width="50%">
-
-**`wallet_ledger_entries`** &nbsp;·&nbsp; append-only audit log
-
-| Column | Type | Notes |
-| :--- | :--- | :--- |
-| `id` | `UUID` | Primary key |
-| `wallet_id` | `UUID` | References `wallets(id)` |
-| `entry_type` | `ENUM` | `CREDIT` or `DEBIT` |
-| `amount` | `BIGINT` | Always positive |
-| `balance_after` | `BIGINT` | Wallet balance right after this row |
-| `reference_type` | `VARCHAR(32)` | Whitelisted upstream system |
-| `reference_id` | `VARCHAR(128)` | Source-system instruction ID |
-| `created_at` | `TIMESTAMPTZ` | Set via `clock_timestamp()` |
-
-</td>
-</tr>
-</table>
-
-<br/>
 
 #### Constraints
 
