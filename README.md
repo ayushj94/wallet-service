@@ -24,7 +24,7 @@
 > - 🏦 **Source of truth for every dollar.** Owns balances; records every movement to an append-only ledger.
 > - 🪟 **Transparent.** Clients can query current balance and the full transaction history through `GET` endpoints.
 > - 💱 **Multi-currency.** Five currencies (USD, EUR, GBP, CAD, INR), single currency per wallet today, extensible to cross-currency operations.
-> - ✅ **50 tests** covering happy path, balance constraint, idempotency, concurrency races, chaos invariants (the ledger and the balance always agree, no matter the workload), and amount overflow.
+> - ✅ **50 tests** covering balance, idempotency, concurrency, transactional atomicity, and overflow.
 
 ---
 
