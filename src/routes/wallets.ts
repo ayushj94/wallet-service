@@ -112,14 +112,33 @@ const balanceResponseSchema = {
   },
 } as const;
 
+// Mutation response is a flat shape: every field from the ledger entry plus
+// the wallet's currency at the root. No nested `entry` object, no separate
+// `balance` (balanceAfter is the same value), no `idempotent` flag
+// (status code 200 vs 201 already conveys whether this was a replay).
 const mutationResponseSchema = {
   type: 'object',
-  required: ['entry', 'balance', 'currency', 'idempotent'],
+  required: [
+    'id',
+    'walletId',
+    'entryType',
+    'amount',
+    'balanceAfter',
+    'referenceType',
+    'referenceId',
+    'createdAt',
+    'currency',
+  ],
   properties: {
-    entry: ledgerEntrySchema,
-    balance: { type: 'integer' },
+    id: { type: 'string', format: 'uuid' },
+    walletId: { type: 'string', format: 'uuid' },
+    entryType: { type: 'string', enum: ['CREDIT', 'DEBIT'] },
+    amount: { type: 'integer' },
+    balanceAfter: { type: 'integer' },
+    referenceType: { type: 'string' },
+    referenceId: { type: 'string' },
+    createdAt: { type: 'string', format: 'date-time' },
     currency: { type: 'string', enum: CURRENCY_VALUES },
-    idempotent: { type: 'boolean' },
   },
 } as const;
 
@@ -227,12 +246,9 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
         referenceType: req.body.referenceType,
         referenceId: req.body.referenceId,
       });
-      return reply.code(result.idempotent ? 200 : 201).send({
-        entry: entryDto(result.entry),
-        balance: result.balance,
-        currency: result.currency,
-        idempotent: result.idempotent,
-      });
+      return reply
+        .code(result.idempotent ? 200 : 201)
+        .send({ ...entryDto(result.entry), currency: result.currency });
     },
   );
 
@@ -261,12 +277,9 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
         referenceType: req.body.referenceType,
         referenceId: req.body.referenceId,
       });
-      return reply.code(result.idempotent ? 200 : 201).send({
-        entry: entryDto(result.entry),
-        balance: result.balance,
-        currency: result.currency,
-        idempotent: result.idempotent,
-      });
+      return reply
+        .code(result.idempotent ? 200 : 201)
+        .send({ ...entryDto(result.entry), currency: result.currency });
     },
   );
 

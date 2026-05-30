@@ -112,13 +112,14 @@ describe('idempotency', () => {
     const first = await deduct(id, 10000, 'INR', refId);
     const second = await deduct(id, 10000, 'INR', refId);
 
+    // Status code 200 (vs 201) is what tells the client this was an
+    // idempotent replay of an earlier op.
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(200);
-    expect(second.json().idempotent).toBe(true);
-    expect(second.json().entry.id).toBe(first.json().entry.id);
+    expect(second.json().id).toBe(first.json().id);
     // Replay returns the balance as it was right after the original op,
     // not the current balance. True idempotent semantics.
-    expect(second.json().balance).toBe(first.json().balance);
+    expect(second.json().balanceAfter).toBe(first.json().balanceAfter);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
     expect(bal.json().balance).toBe(40000); // debited once, not twice
@@ -132,7 +133,7 @@ describe('idempotency', () => {
 
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(200);
-    expect(second.json().idempotent).toBe(true);
+    expect(second.json().id).toBe(first.json().id);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
     expect(bal.json().balance).toBe(50000);
@@ -168,7 +169,7 @@ describe('idempotency', () => {
 
     expect(r1.statusCode).toBe(201);
     expect(r2.statusCode).toBe(201);
-    expect(r1.json().entry.id).not.toBe(r2.json().entry.id);
+    expect(r1.json().id).not.toBe(r2.json().id);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
     expect(bal.json().balance).toBe(95000); // 100000 + 5000 - 10000
@@ -207,7 +208,7 @@ describe('concurrency', () => {
     expect(ok).toHaveLength(10);
 
     // Every response references the same ledger entry id.
-    const entryIds = new Set(ok.map((r) => r.json().entry.id));
+    const entryIds = new Set(ok.map((r) => r.json().id));
     expect(entryIds.size).toBe(1);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
@@ -503,7 +504,7 @@ describe('amount overflow safety', () => {
     const id = await createWallet('INR');
     const res = await topup(id, Number.MAX_SAFE_INTEGER, 'INR');
     expect(res.statusCode).toBe(201);
-    expect(res.json().balance).toBe(Number.MAX_SAFE_INTEGER);
+    expect(res.json().balanceAfter).toBe(Number.MAX_SAFE_INTEGER);
   });
 
   it('rejects an amount above the JS safe integer range', async () => {

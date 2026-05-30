@@ -208,22 +208,15 @@ curl -X POST http://localhost:8080/wallets \
 {
   "type": "object",
   "properties": {
-    "entry": {
-      "type": "object",
-      "properties": {
-        "id":            { "type": "string",  "format": "uuid" },
-        "walletId":      { "type": "string",  "format": "uuid" },
-        "entryType":     { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
-        "amount":        { "type": "integer" },
-        "balanceAfter":  { "type": "integer" },
-        "referenceType": { "type": "string" },
-        "referenceId":   { "type": "string" },
-        "createdAt":     { "type": "string",  "format": "date-time" }
-      }
-    },
-    "balance":    { "type": "integer" },
-    "currency":   { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] },
-    "idempotent": { "type": "boolean" }
+    "id":            { "type": "string",  "format": "uuid" },
+    "walletId":      { "type": "string",  "format": "uuid" },
+    "entryType":     { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
+    "amount":        { "type": "integer" },
+    "balanceAfter":  { "type": "integer" },
+    "referenceType": { "type": "string" },
+    "referenceId":   { "type": "string" },
+    "createdAt":     { "type": "string",  "format": "date-time" },
+    "currency":      { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] }
   }
 }
 ```
@@ -233,7 +226,7 @@ curl -X POST http://localhost:8080/wallets \
 <details>
 <summary><code>200 OK</code> · Idempotent replay of an earlier credit</summary>
 
-Same body as `201`, with `idempotent: true`. The `balance` reflects the value immediately after the original operation, not the current balance.
+Same body as `201`. The HTTP status code (200 vs 201) is what signals this was a replay. `balanceAfter` reflects the value immediately after the original operation.
 
 </details>
 
@@ -311,22 +304,15 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/topup \
 {
   "type": "object",
   "properties": {
-    "entry": {
-      "type": "object",
-      "properties": {
-        "id":            { "type": "string",  "format": "uuid" },
-        "walletId":      { "type": "string",  "format": "uuid" },
-        "entryType":     { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
-        "amount":        { "type": "integer" },
-        "balanceAfter":  { "type": "integer" },
-        "referenceType": { "type": "string" },
-        "referenceId":   { "type": "string" },
-        "createdAt":     { "type": "string",  "format": "date-time" }
-      }
-    },
-    "balance":    { "type": "integer" },
-    "currency":   { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] },
-    "idempotent": { "type": "boolean" }
+    "id":            { "type": "string",  "format": "uuid" },
+    "walletId":      { "type": "string",  "format": "uuid" },
+    "entryType":     { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
+    "amount":        { "type": "integer" },
+    "balanceAfter":  { "type": "integer" },
+    "referenceType": { "type": "string" },
+    "referenceId":   { "type": "string" },
+    "createdAt":     { "type": "string",  "format": "date-time" },
+    "currency":      { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] }
   }
 }
 ```
@@ -336,7 +322,7 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/topup \
 <details>
 <summary><code>200 OK</code> · Idempotent replay</summary>
 
-Same shape as `201`, with `idempotent: true`.
+Same shape as `201`. HTTP status code 200 (vs 201) signals the replay.
 
 </details>
 
