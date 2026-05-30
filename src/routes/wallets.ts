@@ -69,24 +69,24 @@ const transactionsQuery = {
 const ledgerEntrySchema = {
   type: 'object',
   required: [
-    'id',
+    'walletLedgerEntryId',
     'walletId',
     'entryType',
     'amount',
     'balanceAfter',
     'referenceType',
     'referenceId',
-    'createdAt',
+    'walletLedgerEntryCreatedAt',
   ],
   properties: {
-    id: { type: 'string', format: 'uuid' },
+    walletLedgerEntryId: { type: 'string', format: 'uuid' },
     walletId: { type: 'string', format: 'uuid' },
     entryType: { type: 'string', enum: ['CREDIT', 'DEBIT'] },
     amount: { type: 'integer' },
     balanceAfter: { type: 'integer' },
     referenceType: { type: 'string' },
     referenceId: { type: 'string' },
-    createdAt: { type: 'string', format: 'date-time' },
+    walletLedgerEntryCreatedAt: { type: 'string', format: 'date-time' },
   },
 } as const;
 
@@ -119,25 +119,25 @@ const balanceResponseSchema = {
 const mutationResponseSchema = {
   type: 'object',
   required: [
-    'id',
+    'walletLedgerEntryId',
     'walletId',
     'entryType',
     'amount',
     'balanceAfter',
     'referenceType',
     'referenceId',
-    'createdAt',
+    'walletLedgerEntryCreatedAt',
     'currency',
   ],
   properties: {
-    id: { type: 'string', format: 'uuid' },
+    walletLedgerEntryId: { type: 'string', format: 'uuid' },
     walletId: { type: 'string', format: 'uuid' },
     entryType: { type: 'string', enum: ['CREDIT', 'DEBIT'] },
     amount: { type: 'integer' },
     balanceAfter: { type: 'integer' },
     referenceType: { type: 'string' },
     referenceId: { type: 'string' },
-    createdAt: { type: 'string', format: 'date-time' },
+    walletLedgerEntryCreatedAt: { type: 'string', format: 'date-time' },
     currency: { type: 'string', enum: CURRENCY_VALUES },
   },
 } as const;
@@ -172,14 +172,14 @@ const errorResponseSchema = {
 
 function entryDto(e: WalletLedgerEntryRow): Record<string, unknown> {
   return {
-    id: e.id,
+    walletLedgerEntryId: e.id,
     walletId: e.wallet_id,
     entryType: e.entry_type,
     amount: e.amount,
     balanceAfter: e.balance_after,
     referenceType: e.reference_type,
     referenceId: e.reference_id,
-    createdAt: e.created_at,
+    walletLedgerEntryCreatedAt: e.created_at,
   };
 }
 

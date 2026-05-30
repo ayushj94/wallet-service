@@ -116,7 +116,7 @@ describe('idempotency', () => {
     // idempotent replay of an earlier op.
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(200);
-    expect(second.json().id).toBe(first.json().id);
+    expect(second.json().walletLedgerEntryId).toBe(first.json().walletLedgerEntryId);
     // Replay returns the balance as it was right after the original op,
     // not the current balance. True idempotent semantics.
     expect(second.json().balanceAfter).toBe(first.json().balanceAfter);
@@ -133,7 +133,7 @@ describe('idempotency', () => {
 
     expect(first.statusCode).toBe(201);
     expect(second.statusCode).toBe(200);
-    expect(second.json().id).toBe(first.json().id);
+    expect(second.json().walletLedgerEntryId).toBe(first.json().walletLedgerEntryId);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
     expect(bal.json().balance).toBe(50000);
@@ -169,7 +169,7 @@ describe('idempotency', () => {
 
     expect(r1.statusCode).toBe(201);
     expect(r2.statusCode).toBe(201);
-    expect(r1.json().id).not.toBe(r2.json().id);
+    expect(r1.json().walletLedgerEntryId).not.toBe(r2.json().walletLedgerEntryId);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
     expect(bal.json().balance).toBe(95000); // 100000 + 5000 - 10000
@@ -208,7 +208,7 @@ describe('concurrency', () => {
     expect(ok).toHaveLength(10);
 
     // Every response references the same ledger entry id.
-    const entryIds = new Set(ok.map((r) => r.json().id));
+    const entryIds = new Set(ok.map((r) => r.json().walletLedgerEntryId));
     expect(entryIds.size).toBe(1);
 
     const bal = await app.inject({ method: 'GET', url: `/wallets/${id}/balance` });
@@ -421,7 +421,7 @@ describe('pagination on /transactions', () => {
       expect(r.statusCode).toBe(201);
     }
 
-    const collected: Array<{ id: string; amount: number }> = [];
+    const collected: Array<{ walletLedgerEntryId: string; amount: number }> = [];
     let cursor: string | undefined;
     let pages = 0;
     do {
@@ -431,7 +431,7 @@ describe('pagination on /transactions', () => {
       });
       expect(res.statusCode).toBe(200);
       const body = res.json() as {
-        entries: Array<{ id: string; amount: number }>;
+        entries: Array<{ walletLedgerEntryId: string; amount: number }>;
         nextCursor: string | null;
         hasMore: boolean;
       };
@@ -443,7 +443,7 @@ describe('pagination on /transactions', () => {
 
     expect(collected).toHaveLength(12);
     // No duplicates across pages.
-    expect(new Set(collected.map((e) => e.id)).size).toBe(12);
+    expect(new Set(collected.map((e) => e.walletLedgerEntryId)).size).toBe(12);
     // Order is newest-first (descending amounts since we wrote them in increasing order).
     const amounts = collected.map((e) => e.amount);
     expect([...amounts].sort((a, b) => b - a)).toEqual(amounts);

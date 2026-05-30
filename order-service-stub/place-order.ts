@@ -32,14 +32,14 @@ interface BalanceResponse {
 }
 
 interface DeductResponse {
-  id: string;
+  walletLedgerEntryId: string;
   walletId: string;
   entryType: string;
   amount: number;
   balanceAfter: number;
   referenceType: string;
   referenceId: string;
-  createdAt: string;
+  walletLedgerEntryCreatedAt: string;
   currency: string;
 }
 
@@ -98,7 +98,7 @@ async function placeOrder(walletId: string, opts: { retry: boolean }): Promise<v
 
   const ok = body as DeductResponse;
   console.log(
-    `[order-service] Deduct OK. ledger entry ${ok.id}, balance now ${ok.balanceAfter} ${ok.currency}`,
+    `[order-service] Deduct OK. ledger entry ${ok.walletLedgerEntryId}, balance now ${ok.balanceAfter} ${ok.currency}`,
   );
   console.log(`[order-service] Order ${orderId} CONFIRMED`);
 
@@ -112,10 +112,11 @@ async function placeOrder(walletId: string, opts: { retry: boolean }): Promise<v
     }
     // HTTP 200 (vs 201) signals an idempotent replay.
     const isReplay = retry.status === 200;
+    const sameEntry = r.walletLedgerEntryId === ok.walletLedgerEntryId;
     console.log(
-      `[order-service] Retry response. replay=${isReplay}, same entry id=${r.id === ok.id}, balance still ${r.balanceAfter}`,
+      `[order-service] Retry response. replay=${isReplay}, same entry id=${sameEntry}, balance still ${r.balanceAfter}`,
     );
-    if (!isReplay || r.id !== ok.id || r.balanceAfter !== ok.balanceAfter) {
+    if (!isReplay || !sameEntry || r.balanceAfter !== ok.balanceAfter) {
       console.error('[order-service] Idempotency check FAILED');
       process.exit(1);
     }

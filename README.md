@@ -208,15 +208,15 @@ curl -X POST http://localhost:8080/wallets \
 {
   "type": "object",
   "properties": {
-    "id":            { "type": "string",  "format": "uuid" },
-    "walletId":      { "type": "string",  "format": "uuid" },
-    "entryType":     { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
-    "amount":        { "type": "integer" },
-    "balanceAfter":  { "type": "integer" },
-    "referenceType": { "type": "string" },
-    "referenceId":   { "type": "string" },
-    "createdAt":     { "type": "string",  "format": "date-time" },
-    "currency":      { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] }
+    "walletLedgerEntryId":        { "type": "string",  "format": "uuid" },
+    "walletId":                   { "type": "string",  "format": "uuid" },
+    "entryType":                  { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
+    "amount":                     { "type": "integer" },
+    "balanceAfter":               { "type": "integer" },
+    "referenceType":              { "type": "string" },
+    "referenceId":                { "type": "string" },
+    "walletLedgerEntryCreatedAt": { "type": "string",  "format": "date-time" },
+    "currency":                   { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] }
   }
 }
 ```
@@ -304,15 +304,15 @@ curl -X POST http://localhost:8080/wallets/<wallet-id>/topup \
 {
   "type": "object",
   "properties": {
-    "id":            { "type": "string",  "format": "uuid" },
-    "walletId":      { "type": "string",  "format": "uuid" },
-    "entryType":     { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
-    "amount":        { "type": "integer" },
-    "balanceAfter":  { "type": "integer" },
-    "referenceType": { "type": "string" },
-    "referenceId":   { "type": "string" },
-    "createdAt":     { "type": "string",  "format": "date-time" },
-    "currency":      { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] }
+    "walletLedgerEntryId":        { "type": "string",  "format": "uuid" },
+    "walletId":                   { "type": "string",  "format": "uuid" },
+    "entryType":                  { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
+    "amount":                     { "type": "integer" },
+    "balanceAfter":               { "type": "integer" },
+    "referenceType":              { "type": "string" },
+    "referenceId":                { "type": "string" },
+    "walletLedgerEntryCreatedAt": { "type": "string",  "format": "date-time" },
+    "currency":                   { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] }
   }
 }
 ```
@@ -457,14 +457,14 @@ Defaults: `limit = 100` if omitted; no `cursor` returns the first page.
       "items": {
         "type": "object",
         "properties": {
-          "id":            { "type": "string",  "format": "uuid" },
-          "walletId":      { "type": "string",  "format": "uuid" },
-          "entryType":     { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
-          "amount":        { "type": "integer" },
-          "balanceAfter":  { "type": "integer" },
-          "referenceType": { "type": "string" },
-          "referenceId":   { "type": "string" },
-          "createdAt":     { "type": "string",  "format": "date-time" }
+          "walletLedgerEntryId":        { "type": "string",  "format": "uuid" },
+          "walletId":                   { "type": "string",  "format": "uuid" },
+          "entryType":                  { "type": "string",  "enum": ["CREDIT", "DEBIT"] },
+          "amount":                     { "type": "integer" },
+          "balanceAfter":               { "type": "integer" },
+          "referenceType":              { "type": "string" },
+          "referenceId":                { "type": "string" },
+          "walletLedgerEntryCreatedAt": { "type": "string",  "format": "date-time" }
         }
       }
     },
