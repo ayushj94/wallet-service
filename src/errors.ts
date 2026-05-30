@@ -35,6 +35,12 @@ export class CurrencyMismatchError extends AppError {
   }
 }
 
+export class CustomerAlreadyHasWalletError extends AppError {
+  constructor(customerId: string) {
+    super('CUSTOMER_ALREADY_HAS_WALLET', 409, `A wallet already exists for customer ${customerId}`);
+  }
+}
+
 export class ValidationError extends AppError {
   constructor(message: string) {
     super('VALIDATION_ERROR', 400, message);

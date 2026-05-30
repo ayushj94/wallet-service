@@ -4,6 +4,7 @@ import { db } from '../db';
 import type { Currency, Database, WalletLedgerEntryRow, WalletRow } from '../db/schema';
 import {
   CurrencyMismatchError,
+  CustomerAlreadyHasWalletError,
   InsufficientBalanceError,
   NotFoundError,
   ValidationError,
@@ -41,16 +42,27 @@ export interface ListLedgerEntriesResult {
 }
 
 export async function createWallet(input: CreateWalletInput): Promise<WalletRow> {
-  return db
-    .insertInto('wallets')
-    .values({
-      id: randomUUID(),
-      customer_id: input.customerId,
-      currency: input.currency,
-      balance: 0,
-    })
-    .returningAll()
-    .executeTakeFirstOrThrow();
+  try {
+    return await db
+      .insertInto('wallets')
+      .values({
+        id: randomUUID(),
+        customer_id: input.customerId,
+        currency: input.currency,
+        balance: 0,
+      })
+      .returningAll()
+      .executeTakeFirstOrThrow();
+  } catch (err) {
+    // Postgres SQLSTATE 23505 + the wallets_customer_id_key constraint name
+    // means a wallet already exists for this customer. Surface as a typed
+    // domain error rather than letting it bubble as a generic 409.
+    const e = err as { code?: string; constraint?: string };
+    if (e.code === '23505' && e.constraint === 'wallets_customer_id_key') {
+      throw new CustomerAlreadyHasWalletError(input.customerId);
+    }
+    throw err;
+  }
 }
 
 export async function getBalance(

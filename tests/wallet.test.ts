@@ -332,6 +332,24 @@ describe('validation and not-found', () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it('rejects a second wallet for the same customer with CUSTOMER_ALREADY_HAS_WALLET', async () => {
+    const customerId = randomUUID();
+    const first = await app.inject({
+      method: 'POST',
+      url: '/wallets',
+      payload: { customerId, currency: 'USD' },
+    });
+    expect(first.statusCode).toBe(201);
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/wallets',
+      payload: { customerId, currency: 'INR' },
+    });
+    expect(second.statusCode).toBe(409);
+    expect(second.json().error.code).toBe('CUSTOMER_ALREADY_HAS_WALLET');
+  });
+
   it('rejects missing amount on deduct', async () => {
     const id = await createWallet('INR');
     const res = await app.inject({

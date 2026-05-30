@@ -44,14 +44,15 @@ export async function buildApp(): Promise<FastifyInstance> {
     if (Array.isArray((err as { validation?: unknown }).validation)) {
       return reply.code(400).send({ error: { code: 'VALIDATION_ERROR', message: err.message } });
     }
-    // Postgres surfaces unique-violation as SQLSTATE 23505. The service path
-    // catches the race internally, but this is a backstop for any other code
-    // path that could ever trip the same constraint.
+    // Postgres surfaces unique-violation as SQLSTATE 23505. Known cases
+    // (wallet dedupe, ledger idempotency race) are caught in the service
+    // layer and surfaced as typed domain errors. This is a backstop for
+    // anything else that ever trips a UNIQUE constraint.
     const e = err as Error & { code?: string };
     if (e.code === '23505') {
-      return reply.code(409).send({
-        error: { code: 'IDEMPOTENCY_CONFLICT', message: 'Duplicate idempotency key' },
-      });
+      return reply
+        .code(409)
+        .send({ error: { code: 'CONFLICT', message: 'Resource already exists' } });
     }
     // SQLSTATE 22003 is numeric_value_out_of_range. Fires when balance + amount
     // would exceed BIGINT (2^63 - 1). The amount itself is already capped at
