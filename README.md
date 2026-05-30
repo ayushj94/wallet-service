@@ -76,10 +76,20 @@ npm run dev
 
 Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness`). Click to open them in your browser while the service is running locally:
 
-| URL | What it tells you |
-| :--- | :--- |
-| [`GET http://localhost:8080/health/live`](http://localhost:8080/health/live) | Process is alive. Always `200 ok` if the service can answer at all. |
-| [`GET http://localhost:8080/health/ready`](http://localhost:8080/health/ready) | DB is reachable. Returns `200` if a `SELECT 1` succeeds; `503` if not. |
+<table>
+<tr>
+<th width="55%">URL</th>
+<th width="45%">What it tells you</th>
+</tr>
+<tr>
+<td><a href="http://localhost:8080/health/live"><code>GET http://localhost:8080/health/live</code></a></td>
+<td>Process is alive. Always <code>200 ok</code> if the service can answer at all.</td>
+</tr>
+<tr>
+<td><a href="http://localhost:8080/health/ready"><code>GET http://localhost:8080/health/ready</code></a></td>
+<td>DB is reachable. Returns <code>200</code> if a <code>SELECT 1</code> succeeds; <code>503</code> if not.</td>
+</tr>
+</table>
 
 ---
 
