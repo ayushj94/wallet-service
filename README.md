@@ -765,7 +765,7 @@ MySQL would work too, but every operation would need an extra round-trip. Postgr
 | Approach | Why we did not use it |
 | :--- | :--- |
 | `?page=N` or `?offset=N` | Identical under the hood (both compile to `LIMIT … OFFSET …`). They share two problems: (1) the window shifts when new entries land between page requests, so the same "page 2" returns different rows on consecutive calls (duplicates near boundaries, or skipped rows). (2) Deep offsets force Postgres to scan and discard everything before them. `OFFSET 100000` reads 100K rows just to throw them away. |
-| **`?cursor=<entry-id>`** ✅ | Anchored to row identity (the `walletLedgerEntryId` of the last entry from the previous page). Stable under concurrent writes. Two indexed lookups per page: the **primary key on `id`** to find the anchor's `(created_at, id)`, then the **`(wallet_id, created_at DESC)`** index to fetch the next batch of entries older than that anchor. Both are O(log N) B-tree seeks regardless of how deep into the ledger you walk. |
+| **`?cursor=<entry-id>`** ✅ | Anchored to row identity (the `walletLedgerEntryId` of the last entry from the previous page). Stable under concurrent writes. Two indexed lookups per page: the **primary key on `id`** to fetch the anchor's `created_at` (the cursor itself already gives us the id), then the **`(wallet_id, created_at DESC)`** index to fetch the next batch of entries older than that anchor. The page's `WHERE` clause uses the `(anchor.created_at, cursor)` tuple as the boundary — the id tiebreaker is needed so same-millisecond entries don't slip through. Both lookups are O(log N) B-tree seeks regardless of how deep into the ledger you walk. |
 
 ---
 

@@ -105,17 +105,21 @@ export async function listLedgerEntries(
     .limit(options.limit + 1); // fetch one extra to know if there's more
 
   if (options.cursor) {
+    // The cursor IS the anchor entry's id, so we only need to fetch its
+    // created_at. The id from the cursor itself is used as the tiebreaker
+    // for any entries that share the anchor's millisecond timestamp.
+    const cursorId = options.cursor;
     const anchor = await db
       .selectFrom('wallet_ledger_entries')
-      .select(['created_at', 'id'])
-      .where('id', '=', options.cursor)
+      .select('created_at')
+      .where('id', '=', cursorId)
       .where('wallet_id', '=', walletId)
       .executeTakeFirst();
-    if (!anchor) throw new ValidationError(`Invalid cursor: ${options.cursor}`);
+    if (!anchor) throw new ValidationError(`Invalid cursor: ${cursorId}`);
     query = query.where(({ eb, or, and }) =>
       or([
         eb('created_at', '<', anchor.created_at),
-        and([eb('created_at', '=', anchor.created_at), eb('id', '<', anchor.id)]),
+        and([eb('created_at', '=', anchor.created_at), eb('id', '<', cursorId)]),
       ]),
     );
   }
