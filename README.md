@@ -81,8 +81,6 @@ docker volume ls | grep wallet-service   # see what's still on disk
 docker volume rm <name>                  # delete a specific orphan (e.g. leftovers from earlier setups)
 ```
 
-> Postgres data lives in a named Docker volume that survives `docker compose down` by design. Use `down -v` when you want migrations to run from scratch on the next `up`.
-
 ### 🛠 Manual
 
 ```bash
