@@ -619,16 +619,26 @@ Every ledger insert is paired with `UPDATE wallets SET balance = balance + signe
 | Cost | O(1) primary-key lookup | O(1): one update + one insert |
 | Drift risk | Impossible: same transaction makes the two writes atomic |
 
-This is what production financial systems use (Stripe, Razorpay, banks). A chaos test asserts `SUM(signed amounts) == wallets.balance` after thousands of operations.
+This is what production financial systems use (Stripe, Razorpay, banks).
 
 </details>
 
 <details>
 <summary><b>C. Hybrid: derive balance from the latest ledger entry's <code>balance_after</code></b> · ❌ rejected</summary>
 
-Drop the `balance` column; read `balance_after` from `ORDER BY created_at DESC LIMIT 1`. O(1) with the existing index.
+Drop the `balance` column. Read `balance_after` from the most recent ledger entry, using the existing `(wallet_id, created_at DESC)` index.
 
-Slightly purer, but a wallet that grows additional fields (status, tier, frozen-until) loses its natural home, and "show me all wallets with balance over $X" stops being a simple index scan.
+| | Reads | Writes |
+| --- | --- | --- |
+| Cost | O(1) index lookup on the latest entry | O(1): just one insert (no wallet update) |
+| Drift risk | Impossible by construction: no separate column to drift |
+
+Time complexity is competitive with Option B. The reason we don't pick it is what the schema **means**:
+
+- **The wallets table becomes a stub.** Realistic next attributes for a wallet are `status` (active / frozen), `tier` (gold / silver), `daily_spend_limit`, `frozen_until`, `kyc_level`. None of these sensibly belong on a ledger entry. With Option B the wallets table is the natural home for everything wallet-shaped; with C it shrinks to `(id, customer_id, currency)` and never grows.
+- **Common queries get awkward.** "All wallets with balance over $10K" is a one-line indexed scan in B. In C you need a window function or correlated subquery over the entire ledger to pick each wallet's latest entry first. Risk dashboards, ops queries, and reporting pipelines run things like this constantly.
+
+Plus a small edge case: a newly-created wallet has no entries yet, so the balance lookup needs a "no rows means zero" special case in application code.
 
 </details>
 
