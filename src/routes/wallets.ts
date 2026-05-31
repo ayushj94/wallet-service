@@ -99,9 +99,9 @@ const ledgerEntrySchema = {
 
 const walletResponseSchema = {
   type: 'object',
-  required: ['id', 'customerId', 'currency', 'balance', 'createdAt'],
+  required: ['walletId', 'customerId', 'currency', 'balance', 'createdAt'],
   properties: {
-    id: { type: 'string', format: 'uuid' },
+    walletId: { type: 'string', format: 'uuid' },
     customerId: { type: 'string', format: 'uuid' },
     currency: { type: 'string', enum: CURRENCY_VALUES },
     balance: { type: 'integer', minimum: 0 }, // CHECK (balance >= 0)
@@ -247,7 +247,7 @@ export async function registerWalletRoutes(app: FastifyInstance): Promise<void> 
         currency: req.body.currency,
       });
       return reply.code(201).send({
-        id: wallet.id,
+        walletId: wallet.id,
         customerId: wallet.customer_id,
         currency: wallet.currency,
         balance: wallet.balance,

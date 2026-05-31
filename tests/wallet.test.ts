@@ -15,7 +15,7 @@ async function createWallet(currency: Currency): Promise<string> {
     payload: { customerId: randomUUID(), currency },
   });
   expect(res.statusCode).toBe(201);
-  return res.json().id as string;
+  return res.json().walletId as string;
 }
 
 async function topup(

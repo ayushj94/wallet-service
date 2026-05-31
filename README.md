@@ -147,7 +147,7 @@ Two endpoints following the standard Kubernetes pattern (`liveness` + `readiness
 {
   "type": "object",
   "properties": {
-    "id":         { "type": "string",  "format": "uuid" },
+    "walletId":   { "type": "string",  "format": "uuid" },
     "customerId": { "type": "string",  "format": "uuid" },
     "currency":   { "type": "string",  "enum": ["USD", "EUR", "GBP", "CAD", "INR"] },
     "balance":    { "type": "integer", "minimum": 0 },
