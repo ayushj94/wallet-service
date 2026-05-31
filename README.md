@@ -804,12 +804,9 @@ Tests run against a real Postgres instance, not a mock, because the questions th
 ```bash
 docker compose up -d postgres   # start the DB
 npm test                        # run the suite (54 tests, ~1 second)
-npm run typecheck               # strict tsc
-npm run lint                    # ESLint with TypeScript + Prettier configs
-npm run format                  # prettier --write
 ```
 
-CI runs all of these on every push and pull request.
+CI additionally runs `npm run typecheck`, `npm run lint`, and `npm run format:check` alongside the test suite on every push and pull request.
 
 ### 🤖 Order Service stub
 
