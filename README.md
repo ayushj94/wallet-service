@@ -71,16 +71,7 @@ docker compose up --build
 
 Brings up Postgres, applies the schema on first boot, starts the service on [localhost:8080](http://localhost:8080).
 
-### 🛠 Manual
-
-```bash
-cp .env.example .env       # point at your Postgres
-npm install
-npm run migrate            # applies migrations/001_init.sql
-npm run dev
-```
-
-### 🧹 Stop / reset
+**Stop / reset:**
 
 ```bash
 docker compose stop                      # pause both containers; data preserved
@@ -91,6 +82,15 @@ docker volume rm <name>                  # delete a specific orphan (e.g. leftov
 ```
 
 > Postgres data lives in a named Docker volume that survives `docker compose down` by design. Use `down -v` when you want migrations to run from scratch on the next `up`.
+
+### 🛠 Manual
+
+```bash
+cp .env.example .env       # point at your Postgres
+npm install
+npm run migrate            # applies migrations/001_init.sql
+npm run dev
+```
 
 ---
 
