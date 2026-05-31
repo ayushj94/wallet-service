@@ -701,8 +701,8 @@ That decision creates a real problem if we dedupe on `referenceId` alone:
 
 | Scope | Behaviour | Verdict |
 | :--- | :--- | :--- |
-| `referenceId` alone | Two different systems can easily mint the same string. `ORDER_SYSTEM` sending `"1"` and `PAYMENT_GATEWAY_SYSTEM` sending `"1"` would be deduped as the same operation, even though they're unrelated events. | ❌ Cross-system collision |
-| `(referenceType, referenceId)` | Each upstream system gets its own namespace; collisions across systems disappear. A nice secondary benefit of `referenceType`: every ledger entry tells you which upstream system originated it, useful for audit, filtering, and reporting independently of dedupe. `walletId` in the scope is what unlocks legitimate mass-update flows (festive cashback campaigns, disaster-relief credits). | ❌ Cross-wallet collision |
+| `referenceId` alone | Two different systems can easily mint the same string. `ORDER_SYSTEM` sending `"1"` and `PAYMENT_GATEWAY_SYSTEM` sending `"1"` would be deduped as the same operation, even though they're unrelated events. Beyond the collision risk, a ledger row can't even tell you which upstream system created it — useful audit, filtering, and reporting signal is lost. | ❌ Cross-system collision |
+| `(referenceType, referenceId)` | Each upstream system gets its own namespace; collisions across systems disappear, and every ledger entry now carries its origin (a nice secondary benefit, independent of dedupe). `walletId` in the scope is what unlocks legitimate mass-update flows (festive cashback campaigns, disaster-relief credits). | ❌ Cross-wallet collision |
 | **`(walletId, referenceType, referenceId)`** | Each wallet has its own dedupe space. Same campaign id across many wallets credits each wallet exactly once. | ✅ Correct |
 
 
