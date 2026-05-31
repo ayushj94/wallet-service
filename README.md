@@ -774,7 +774,7 @@ MySQL would work too, but every operation would need an extra round-trip. Postgr
 - Stable under concurrent writes; no duplicates or skips even if new entries land mid-pagination.
 - Two indexed lookups per page (both O(log N)):
   1. **Anchor lookup**: fetch the anchor entry's `created_at` from the row whose `id` matches the cursor. Uses the **primary key on `id`**.
-  2. **Page fetch**: return entries strictly older than the anchor, using `(anchor.created_at, cursor)` as the boundary. Uses the **`(wallet_id, created_at DESC)`** index.
+  2. **Page fetch**: return entries strictly older than the anchor. The boundary check is `created_at < <anchor.created_at> OR (created_at = <anchor.created_at> AND id < <cursor>)`. Uses the **`(wallet_id, created_at DESC)`** index for the range scan.
 - The cursor doubles as the id tiebreaker, so two entries sharing the same millisecond timestamp don't slip through pagination.
 
 ---
