@@ -764,9 +764,8 @@ MySQL would work too, but every operation would need an extra round-trip. Postgr
 
 | Approach | Why we did not use it |
 | :--- | :--- |
-| `?page=N` | Append-only ledgers shift the window when new entries land. Same page returns different rows on consecutive calls. |
-| `?offset=N` | `OFFSET 100000` makes Postgres scan and discard 100k rows. Slow as the ledger grows. |
-| **`?cursor=<entry-id>`** ✅ | Anchored to row identity. Stable under concurrent writes. Uses the existing `(wallet_id, created_at DESC)` index. |
+| `?page=N` or `?offset=N` | Identical under the hood (both compile to `LIMIT … OFFSET …`). They share two problems: (1) the window shifts when new entries land between page requests, so the same "page 2" returns different rows on consecutive calls (duplicates near boundaries, or skipped rows). (2) Deep offsets force Postgres to scan and discard everything before them. `OFFSET 100000` reads 100K rows just to throw them away. |
+| **`?cursor=<entry-id>`** ✅ | Anchored to row identity (the `walletLedgerEntryId` of the last entry from the previous page). Stable under concurrent writes, and uses the existing `(wallet_id, created_at DESC)` index for O(log N) lookups regardless of how deep into the ledger you walk. |
 
 ---
 
