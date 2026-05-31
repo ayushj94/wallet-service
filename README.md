@@ -762,10 +762,20 @@ MySQL would work too, but every operation would need an extra round-trip. Postgr
 
 `GET /wallets/:id/transactions` is cursor-paginated. The cursor is the `id` of the last entry from the previous page; the next query fetches entries strictly older than that anchor.
 
-| Approach | Why we did not use it |
-| :--- | :--- |
-| `?page=N` or `?offset=N` | Identical under the hood (both compile to `LIMIT … OFFSET …`). They share two problems: (1) the window shifts when new entries land between page requests, so the same "page 2" returns different rows on consecutive calls (duplicates near boundaries, or skipped rows). (2) Deep offsets force Postgres to scan and discard everything before them. `OFFSET 100000` reads 100K rows just to throw them away. |
-| **`?cursor=<entry-id>`** ✅ | Anchored to row identity (the `walletLedgerEntryId` of the last entry from the previous page). Stable under concurrent writes. Two indexed lookups per page: the **primary key on `id`** to fetch the anchor's `created_at` (the cursor itself already gives us the id), then the **`(wallet_id, created_at DESC)`** index to fetch the next batch of entries older than that anchor. The page's `WHERE` clause uses the `(anchor.created_at, cursor)` tuple as the boundary — the id tiebreaker is needed so same-millisecond entries don't slip through. Both lookups are O(log N) B-tree seeks regardless of how deep into the ledger you walk. |
+**`?page=N` or `?offset=N`** · _rejected_
+
+- Both compile to the same SQL: `LIMIT … OFFSET …`.
+- **Window shifts on concurrent appends.** The same "page 2" can return different rows on consecutive calls (duplicates near boundaries, or skipped rows).
+- **Deep offsets are slow.** `OFFSET 100000` makes Postgres scan and discard 100K rows just to skip them.
+
+**`?cursor=<entry-id>`** · _chosen_
+
+- Cursor is the `walletLedgerEntryId` of the last entry from the previous page.
+- Stable under concurrent writes; no duplicates or skips even if new entries land mid-pagination.
+- Two indexed lookups per page (both O(log N)):
+  1. **Anchor lookup**: fetch the anchor entry's `created_at` from the row whose `id` matches the cursor. Uses the **primary key on `id`**.
+  2. **Page fetch**: return entries strictly older than the anchor, using `(anchor.created_at, cursor)` as the boundary. Uses the **`(wallet_id, created_at DESC)`** index.
+- The cursor doubles as the id tiebreaker, so two entries sharing the same millisecond timestamp don't slip through pagination.
 
 ---
 
