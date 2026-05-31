@@ -66,6 +66,8 @@ The fastest path needs **only Docker**. Everything else (Postgres, Node, depende
 ### 🐳 Docker (Recommended)
 
 ```bash
+git clone https://github.com/ayushj94/wallet-service.git
+cd wallet-service
 docker compose up --build
 ```
 
@@ -84,6 +86,8 @@ docker volume rm <name>                  # delete a specific orphan (e.g. leftov
 ### 🛠 Manual
 
 ```bash
+git clone https://github.com/ayushj94/wallet-service.git
+cd wallet-service
 cp .env.example .env       # point at your Postgres
 npm install
 npm run migrate            # applies migrations/001_init.sql
