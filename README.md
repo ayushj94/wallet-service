@@ -596,7 +596,7 @@ erDiagram
 There are three honest ways to answer "what is this wallet's balance right now?"
 
 <details open>
-<summary><b>A. Recompute from the ledger every time</b> · ❌ rejected</summary>
+<summary><b>A. Recompute from the ledger every time</b> · <i>rejected</i></summary>
 
 `SUM(credits) - SUM(debits)` whenever someone asks.
 
@@ -610,7 +610,7 @@ The write path is the killer. Caching hides the read cost but cannot hide the wr
 </details>
 
 <details open>
-<summary><b>B. Cached <code>balance</code> column, updated with every entry</b> · ✅ chosen</summary>
+<summary><b>B. Cached <code>balance</code> column, updated with every entry</b> · <i>chosen</i></summary>
 
 Every ledger insert is paired with `UPDATE wallets SET balance = balance + signed`, inside the same transaction.
 
@@ -624,7 +624,7 @@ This is what production financial systems use (Stripe, Razorpay, banks).
 </details>
 
 <details>
-<summary><b>C. Hybrid: derive balance from the latest ledger entry's <code>balance_after</code></b> · ❌ rejected</summary>
+<summary><b>C. Hybrid: derive balance from the latest ledger entry's <code>balance_after</code></b> · <i>rejected</i></summary>
 
 Drop the `balance` column. Read `balance_after` from the most recent ledger entry, using the existing `(wallet_id, created_at DESC)` index.
 
@@ -725,7 +725,7 @@ Take a row-level lock first (`SELECT ... FOR UPDATE`), then check the balance, t
 </details>
 
 <details open>
-<summary><b>🐰 Optimistic locking · ✅ chosen</b></summary>
+<summary><b>🐰 Optimistic locking · <i>chosen</i></b></summary>
 
 Atomic conditional update: `UPDATE wallets SET balance = balance + signed WHERE id = ? AND balance + signed >= 0 RETURNING balance`. Insufficient balance returns zero rows; we react to that. If a concurrent request beats us to the ledger insert, the `UNIQUE` constraint fires; we roll back and recover the winner.
 
