@@ -810,7 +810,7 @@ CI additionally runs `npm run typecheck`, `npm run lint`, and `npm run format:ch
 
 ### 🤖 Order Service stub
 
-A small script that pretends to be the upstream Order Service. Demonstrates idempotency by retrying the same `order_id` and confirming the wallet does not get double-charged. This was required as a deliverable by the original spec.
+A small script that pretends to be the upstream Order Service. Demonstrates idempotency by retrying the same `order_id` and confirming the wallet does not get double-charged.
 
 ```bash
 npx tsx order-service-stub/place-order.ts <wallet-id> --retry
