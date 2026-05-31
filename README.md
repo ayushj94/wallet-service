@@ -729,8 +729,8 @@ Take a row-level lock first (`SELECT ... FOR UPDATE`), then check the balance, t
 
 Atomic conditional update: `UPDATE wallets SET balance = balance + signed WHERE id = ? AND balance + signed >= 0 RETURNING balance`. Insufficient balance returns zero rows; we react to that. If a concurrent request beats us to the ledger insert, the `UNIQUE` constraint fires; we roll back and recover the winner.
 
-- ✅ Saves one query per request on the common path.
-- ⚠️ The rare contention case costs one extra rollback (uncommon for typical wallet traffic).
+- ✅ Saves one query per request on the common path (no `SELECT FOR UPDATE` needed before the mutation).
+- ⚠️ Rare contention case: same query count as the happy path (5 vs 5). The transaction ends with `ROLLBACK` instead of `COMMIT`, and the tentative wallet `UPDATE` creates a small dead MVCC tuple that `VACUUM` reclaims later. Latency-wise, essentially the same as the happy path; uncommon for typical wallet traffic.
 
 </details>
 
