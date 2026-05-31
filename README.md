@@ -30,11 +30,11 @@
 
 ## 📑 Table of Contents
 
-1. [Prerequisites](#-1-prerequisites)
-2. [Run it](#-2-run-it)
-3. [Check Health](#-3-check-health)
-4. [API Contracts](#-4-api-contracts)
-5. [System Design](#-5-system-design)
+1. [🛠 Prerequisites](#-1-prerequisites)
+2. [⚡ Run it](#-2-run-it)
+3. [🩺 Check Health](#-3-check-health)
+4. [🚀 API Contracts](#-4-api-contracts)
+5. [🎯 System Design](#-5-system-design)
    - [🧰 Tech stack](#-tech-stack)
    - [🗄 Table schema](#-table-schema)
    - [💰 Maintaining current balance: three approaches](#-maintaining-current-balance-three-approaches)
@@ -45,8 +45,8 @@
    - [🔒 Locking: pessimistic vs optimistic](#-locking-pessimistic-vs-optimistic)
    - [🐘 Why Postgres, not MySQL](#-why-postgres-not-mysql)
    - [📄 Pagination: cursor, not offset](#-pagination-cursor-not-offset)
-6. [How we test it](#-6-how-we-test-it)
-7. [Project Layout](#-7-project-layout)
+6. [🧪 How we test it](#-6-how-we-test-it)
+7. [📂 Project Layout](#-7-project-layout)
 
 ---
 
