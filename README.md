@@ -34,7 +34,7 @@
 2. [⚡ Run it](#-2-run-it)
 3. [🩺 Check Health](#-3-check-health)
 4. [🚀 API Contracts](#-4-api-contracts)
-5. [🎯 System Design](#-5-system-design)
+5. [🏗 System Design](#-5-system-design)
    - [🧰 Tech stack](#-tech-stack)
    - [🗄 Table schema](#-table-schema)
    - [💰 Maintaining current balance: three approaches](#-maintaining-current-balance-three-approaches)
@@ -528,7 +528,7 @@ curl "http://localhost:8080/wallets/<wallet-id>/transactions?limit=50"
 
 ---
 
-## 🎯 5. System Design
+## 🏗 5. System Design
 
 The interesting engineering choices and the reasoning behind each.
 
