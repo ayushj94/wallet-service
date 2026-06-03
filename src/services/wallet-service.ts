@@ -260,11 +260,10 @@ async function mutateAndRecord(
     throw new InsufficientBalanceError(input.walletId, fresh.balance, input.amount);
   }
 
-  const entryId = randomUUID();
-  const inserted = await trx
+  const entry = await trx
     .insertInto('wallet_ledger_entries')
     .values({
-      id: entryId,
+      id: randomUUID(),
       wallet_id: input.walletId,
       entry_type: entryType,
       amount: input.amount,
@@ -273,18 +272,12 @@ async function mutateAndRecord(
       reference_id: input.referenceId,
     })
     .onConflict((oc) => oc.columns(['wallet_id', 'reference_type', 'reference_id']).doNothing())
-    .returning('id')
+    .returningAll()
     .executeTakeFirst();
 
-  if (!inserted) {
+  if (!entry) {
     throw new IdempotencyRace();
   }
-
-  const entry = await trx
-    .selectFrom('wallet_ledger_entries')
-    .selectAll()
-    .where('id', '=', entryId)
-    .executeTakeFirstOrThrow();
 
   return { entry, balance: updated.balance, currency, idempotent: false };
 }
